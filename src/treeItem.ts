@@ -2,16 +2,21 @@ import { ThemeIcon, TreeItem, TreeItemCollapsibleState, TreeItemLabel, Uri } fro
 import { v4 } from 'uuid';
 
 export interface WadTreeItemOptions {
+  [key:string]:any;
+  iconPath?: TreeItem["iconPath"];
+  description?: TreeItem["description"];
+  resourceUri?: TreeItem["resourceUri"];
+  tooltip?: TreeItem["tooltip"];
+  command?: TreeItem["command"];
+  collapsibleState?: TreeItem["collapsibleState"];
+  contextValue?: TreeItem["contextValue"];
+
   label: string | TreeItemLabel;
   type: string,
   children?: WadTreeItem[];
   uri?: Uri;
-  description?: TreeItem['description'];
-  collapsibleState?: TreeItemCollapsibleState;
-  tooltip?: TreeItem['tooltip'];
-  iconPath?: string | Uri | { light: string | Uri; dark: string | Uri } | ThemeIcon
   root?: boolean;
-}
+};
 
 export class WadTreeItem extends TreeItem {
   public readonly id: string;
@@ -19,8 +24,6 @@ export class WadTreeItem extends TreeItem {
   public label: TreeItem['label'];
   public type: string;
   public uri?: Uri;
-  public description?: TreeItem['description'];
-  public tooltip?: TreeItem['tooltip'];
   public parentId?: string;
 
   private _children: WadTreeItem[] = [];
@@ -41,15 +44,19 @@ export class WadTreeItem extends TreeItem {
   )
   {
     super(options.label);
-    this.root = options.root || this.root;
+    this.iconPath = options.iconPath;
+    this.description = options.description;
+    this.resourceUri = options.resourceUri;
+    this.tooltip = options.tooltip;
+    this.command = options.command;
+    this.collapsibleState = options.collapsibleState;
+    this.contextValue = options.contextValue;
+    this.uri = options.uri;
     this.type = options.type;
+    this.root = options.root || this.root;
     this.id = `${this.type}${this.root ? '-root-' : '-'}${v4()}`;
-    this.label = options.label;
     this._children = options.children || [];
     this.collapsibleState = options.collapsibleState ? options.collapsibleState : this._children.length > 0 || this.root ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
-    this.uri = options.uri;
-    this.description = this.root ? this._children.length.toString() : options.description;
-    this.tooltip = options.tooltip;
-    this.iconPath = options.iconPath;
+    this.description = this.root ? this._children.length.toString() : this.description;
   }
 }

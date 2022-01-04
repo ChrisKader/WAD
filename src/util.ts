@@ -4,9 +4,18 @@ import * as path from "path";
 
 const iconsRootPath = path.join(__dirname, "..", "resources", "icons");
 
+export const regExObj = {
+  oldReposRegex: /(?:.*(?<type>(?:git|svn|hg))(?<path>\.(?:curseforge|wowace)\.com\/.+)\/mainline(?<end>\/trunk)?)/,
+  svnCheckRegex: /^(?:svn|.+):\/{2}.+\..+(?:(?:.+)?\/trunk\/)/
+};
+
 export function getIconUri(iconName: string, theme: string): Uri {
   return Uri.file(path.join(iconsRootPath, theme, `${iconName}.svg`));
 }
+
+export function toProperCase(s: string) {
+  return s.replace(/\w\S*/g, function (txt) { return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase(); });
+};
 export async function workspaceRecursiveCopy(sourceDir: Uri, targetDir: Uri, ignore?: string[]): Promise<{ sourceDir: string, targetDir: string, complete: boolean, copyResults: string[][] }> {
   const sourceDirFs = sourceDir.fsPath;
   const targetDirFs = targetDir.fsPath;
