@@ -1,6 +1,12 @@
 import { Uri, FileType, workspace as Workspace } from "vscode";
-import { log } from "./msUtil";
+import { log } from "./msutil";
+import * as path from "path";
 
+const iconsRootPath = path.join(__dirname, "..", "resources", "icons");
+
+export function getIconUri(iconName: string, theme: string): Uri {
+  return Uri.file(path.join(iconsRootPath, theme, `${iconName}.svg`));
+}
 export async function workspaceRecursiveCopy(sourceDir: Uri, targetDir: Uri, ignore?: string[]): Promise<{ sourceDir: string, targetDir: string, complete: boolean, copyResults: string[][] }> {
   const sourceDirFs = sourceDir.fsPath;
   const targetDirFs = targetDir.fsPath;

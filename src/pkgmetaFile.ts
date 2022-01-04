@@ -2,9 +2,9 @@ import { ThemeIcon, TreeItemCollapsibleState, Uri, workspace as Workspace } from
 import { parse as YamlParse } from 'yaml';
 import { WadTreeItem, WadTreeItemOptions } from './treeItem';
 import { basename as Basename, dirname as Dirname, join as Join } from 'path';
-import { log } from './msUtil';
+import { log } from './msutil';
 import { ScmUtils } from './scmUtils';
-
+import { getIconUri } from "./util";
 export interface ApiTokens {
   curseforge?: string,
   wowinterface?: string,
@@ -34,23 +34,6 @@ export interface PackagerOptions {
   tokens?: ApiTokens;
 }
 
-class EpocTime {
-  _date: Date;
-  public getTime() {
-    return this._date.getTime() / 1000;
-  }
-  constructor(
-    timestamp?: number
-  ) {
-    if (timestamp) {
-      this._date = new Date(timestamp * 1000);
-    } else {
-      this._date = new Date();
-    }
-  }
-}
-
-
 interface PkgMetaExternal {
   [key: string]: {
     url: string;
@@ -71,30 +54,32 @@ interface PkgMetaManualChangelog {
 }
 
 function toProperCase(s: string) {
-  return s.replace(/\w\S*/g, function(txt){return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();});
+  return s.replace(/\w\S*/g, function (txt) { return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase(); });
 };
+
 const regExObj = {
   oldReposRegex: /(?:.*(?<type>(?:git|svn|hg))(?<path>\.(?:curseforge|wowace)\.com\/.+)\/mainline(?<end>\/trunk)?)/,
   svnCheckRegex: /^(?:svn|.+):\/{2}.+\..+(?:(?:.+)?\/trunk\/)/
 };
+
 type ArrayOfArrays = string[][];
 export class PkgmetaFile {
   private _directives: {
-    [key:string]:string | (string | ArrayOfArrays)[][] | ArrayOfArrays | undefined;
-		"package-as": string;
-		"externals"?: (string | ArrayOfArrays)[][];
-		"move-folders"?: ArrayOfArrays;
-		"ignore"?: ArrayOfArrays;
-		"required-dependencies"?: ArrayOfArrays;
-		"optional-dependencies"?: ArrayOfArrays;
-		"manual-changelog"?: ArrayOfArrays;
-		"license-output"?: string;
-		"embdded-libraries"?: ArrayOfArrays;
-		"tools-used"?: ArrayOfArrays;
-		"enable-nolib-creation"?: string;
-	} = {
-    "package-as":"Loading"
-  };
+    [key: string]: string | string[] | PkgMetaExternal[] | PkgMetaMoveFolders[] | PkgMetaManualChangelog | undefined
+    "package-as": string;
+    "externals"?: PkgMetaExternal[];
+    "move-folders"?: PkgMetaMoveFolders[];
+    "ignore"?: string[];
+    "required-dependencies"?: string[];
+    "optional-dependencies"?: string[];
+    "manual-changelog"?: PkgMetaManualChangelog;
+    "license-output"?: string;
+    "embdded-libraries"?: string[];
+    "tools-used"?: string[];
+    "enable-nolib-creation"?: string;
+  } = {
+      "package-as": "Loading"
+    };
 
   get directives() {
     return this._directives;
@@ -102,40 +87,40 @@ export class PkgmetaFile {
   // { [x:string]: string | string[][] | { [x: string]:string[][] } }
   private yamlReviver(key: unknown, value: any) {
     const typedKey = <string>key;
-    if(!["package-as","externals","move-folders","ignore","required-dependencies",
-    "optional-dependencies","manual-changelog","license-output","embdded-libraries",
-    "tools-used","enable-nolib-creation"].includes(typedKey)) {
+    if (!["package-as", "externals", "move-folders", "ignore", "required-dependencies",
+      "optional-dependencies", "manual-changelog", "license-output", "embdded-libraries",
+      "tools-used", "enable-nolib-creation"].includes(typedKey)) {
       return value;
     }
 
-    if(typedKey === 'package-as' || typedKey === 'enable-nolib-creation' || typedKey === 'license-output'){
+    if (typedKey === 'package-as' || typedKey === 'enable-nolib-creation' || typedKey === 'license-output') {
       return <string>value;
     }
 
-    if(typedKey === 'move-folders' || typedKey === 'manual-changelog'){
-      const typedValue:{[key:string]:string} = value;
-      let rtnValue:ArrayOfArrays = [];
-      Object.keys(typedValue).map((propKey,propIndex)=>{
-        const propValue = typedValue[propKey];
-        rtnValue.push([propKey,propValue]);
-      });
+    if (typedKey === 'manual-changelog') {
+      const rtnValue: PkgMetaManualChangelog = typeof (value) === 'string' ? Object.assign({}, { filename: value }, { 'markup-type': 'text' }) : value;
       return rtnValue;
     }
 
-    if(typedKey === 'ignore' || typedKey === 'required-dependencies' || typedKey === 'optional-dependencies' || typedKey === 'embedded-libraries' || typedKey === 'tools-used'){
-      const typedValue:string[] = value;
-      let rtnValue:ArrayOfArrays = [];
-      typedValue.map((arrayEntry,arrayIndex) => {
-        rtnValue.push([arrayIndex.toString(),arrayEntry]);
-      });
+    if (typedKey === 'move-folders') {
+      const rtnValue: PkgMetaMoveFolders = value;
       return rtnValue;
     }
 
-    if(typedKey === 'externals'){
-      let rtnValue:(string | ArrayOfArrays)[][] = [];
-      const typedValue:{[key:string]:(string|{[key:string]:string})} = value;
-      Object.keys(typedValue).map((externalKey,externalIndex)=>{
-        let externalEntry:{[key:string]:string} = typeof(typedValue[externalKey]) === 'object' ? Object(typedValue[externalKey]) : { url:typedValue[externalKey],type:'git'};
+    if (typedKey === 'ignore' || typedKey === 'required-dependencies' || typedKey === 'optional-dependencies' || typedKey === 'embedded-libraries' || typedKey === 'tools-used') {
+      const rtnValue: string[] = value;
+      return rtnValue;
+    }
+
+    if (typedKey === 'externals') {
+      let rtnValue: (string | ArrayOfArrays)[][] = [];
+      const typedValue: {
+        [key: string]: (string | {
+          [key: string]: string
+        })
+      } = value;
+      Object.keys(typedValue).map((externalKey, externalIndex) => {
+        let externalEntry: { [key: string]: string } = typeof (typedValue[externalKey]) === 'object' ? Object(typedValue[externalKey]) : { url: typedValue[externalKey], type: 'git' };
         const oldReposMatches = regExObj.oldReposRegex.exec(externalEntry.url)?.groups;
         if (oldReposMatches && oldReposMatches.path && oldReposMatches.type) {
           externalEntry.url = `https://repo${oldReposMatches.path}${oldReposMatches.end ? oldReposMatches.end : ''}`;
@@ -148,7 +133,7 @@ export class PkgmetaFile {
           }
         }
         externalEntry.url = externalEntry.url + '/';
-        const rtnArray = [externalKey,Object.keys(externalEntry).map(p => [p,externalEntry[p]])];
+        const rtnArray = [externalKey, Object.keys(externalEntry).map(p => [p, externalEntry[p]])];
         rtnValue.push(rtnArray);
       });
       return rtnValue;
@@ -163,10 +148,10 @@ export class PkgmetaFile {
   }
 
   private get treeItemEntries(): WadTreeItem[] {
-    return Object.keys(this._directives).filter(v=>{
-      if(v === 'package-as'){
+    return Object.keys(this._directives).filter(v => {
+      if (v === 'package-as') {
         return false;
-      } else if(v === 'enable-nolib-creation'){
+      } else if (v === 'enable-nolib-creation') {
         return false;
       } else {
         return true;
@@ -174,43 +159,12 @@ export class PkgmetaFile {
     }).map(directiveKey => {
       const directive = this._directives[directiveKey];
       return new WadTreeItem({
-        label: toProperCase(directiveKey.replace(/-/g,' ')),
-        description: Array.isArray(directive) ? directive.length.toString() : directive!,
+        label: toProperCase(directiveKey.replace(/-/g, ' ')),
+        description: '',
         type: 'pkgmeta',
-        iconPath: !Array.isArray(directive) ? new ThemeIcon('beaker') : undefined,
-        children: !Array.isArray(directive) ? [] : directive.map((externalArray)=>{
-          if(directiveKey === 'externals'){
-            let externalProps:ArrayOfArrays = <ArrayOfArrays>externalArray[1];
-            let labelName = <string>externalArray[0];
-            let description = externalProps.find(v=>v[0] === 'type')![1];
-            let label = `${labelName}`;
-            let tooltip = `${externalProps.find(v=>v[0] === 'url')![1]}`;
-            return new WadTreeItem({
-              label: label,
-              tooltip: tooltip,
-              description: description,
-              iconPath: new ThemeIcon(description === 'git' ? 'git-branch' : 'unfold'),
-              type: 'pkgmeta',
-              children: []/* externalProps.map((propArray): WadTreeItem => new WadTreeItem({
-                  label: propArray[0],
-                  type: 'pkgmeta',
-                  description: propArray[1],
-                  children: []
-                })) */
-            });
-          } else {
-            let label = directiveKey === 'ignore' ? <string>externalArray[1] : <string>externalArray[0];
-            if(directiveKey !== 'ignore' && directiveKey !== 'move-folders'){
-              label = toProperCase(label.replace(/-/g,' '));
-            }
-            return new WadTreeItem({
-              label: label,
-              description: directiveKey === 'ignore' ? undefined : <string>externalArray[1],
-              iconPath: new ThemeIcon(directiveKey === 'ignore' ? 'stop' : directiveKey === 'move-folders' ? 'arrow-right' : 'bookmark'),
-              type: 'pkgmeta'
-            });
-          }
-        })
+        iconPath: '',
+        tooltip: '',
+        children: []
       });
     });
   }
@@ -226,12 +180,13 @@ export class PkgmetaFile {
       children: this.treeItemEntries,
       description: Basename(this.resourceUri.fsPath),
       uri: this.resourceUri,
-      tooltip: this.workspaceRelativePath
+      tooltip: this.workspaceRelativePath,
+      iconPath: (Basename(this.resourceUri.fsPath).includes('-bcc') || Basename(this.resourceUri.fsPath).includes('-classic')) ? getIconUri("wowc", 'dark') : getIconUri("wow", 'dark'),
     };
     return new WadTreeItem(wadItemTreeOptions);
   }
 
-  async tocFile(){
+  async tocFile() {
     let baseDir = Workspace.workspaceFolders![0].uri;
 
     const possiblePaths = [
@@ -240,15 +195,15 @@ export class PkgmetaFile {
     ];
 
     let idx = 0;
-    while(idx < possiblePaths.length){
+    while (idx < possiblePaths.length) {
       const possiblePath = possiblePaths[idx];
-      const possibleUri = Uri.joinPath(baseDir,possiblePath);
-      try{
+      const possibleUri = Uri.joinPath(baseDir, possiblePath);
+      try {
         const tocFileStat = (await Workspace.fs.stat(possibleUri));
-        if(typeof(tocFileStat) !== 'undefined'){
+        if (typeof (tocFileStat) !== 'undefined') {
           return possibleUri;
         }
-      } catch(e){
+      } catch (e) {
 
       }
       idx++;
@@ -256,61 +211,61 @@ export class PkgmetaFile {
     return false;
   }
 
-  async libFolder(){
-    let potentialFolders = ['/Library','/Libs','/Lib'];
+  async libFolder() {
+    let potentialFolders = ['/Library', '/Libs', '/Lib'];
     let idx = 0;
-    let externalsFolder:string = '';
-    if(this._directives["externals"]){
+    let externalsFolder: string = '';
+    if (this._directives["externals"]) {
       const destDir = <string><unknown>this._directives.externals[0][0].toString().split('/');
-      if(destDir.length > 1){
+      if (destDir.length > 1) {
         externalsFolder = destDir[destDir.length - 2];
-        potentialFolders = [externalsFolder,...potentialFolders];
+        potentialFolders = [externalsFolder, ...potentialFolders];
       }
     }
-    while(idx < potentialFolders.length){
+    while (idx < potentialFolders.length) {
       const potentialFolder = potentialFolders[idx];
-      const testUri = Uri.joinPath(this.resourceUri,potentialFolder);
-      try{
+      const testUri = Uri.joinPath(this.resourceUri, potentialFolder);
+      try {
         const checkDir = (await Workspace.fs.stat(testUri));
-        if(typeof(checkDir) !== 'undefined'){
+        if (typeof (checkDir) !== 'undefined') {
           return testUri;
         }
-      } catch(e){
+      } catch (e) {
 
       }
       idx++;
     }
 
-    const configDir = Workspace.getConfiguration('wad').get('defaultLibFolder','/Libs');
-    return Uri.joinPath(this.resourceUri.with({path: Dirname(this.resourceUri.fsPath)}),'/',this.title,externalsFolder.length > 0 ? externalsFolder : configDir);
+    const configDir = Workspace.getConfiguration('wad').get('defaultLibFolder', '/Libs');
+    return Uri.joinPath(this.resourceUri.with({ path: Dirname(this.resourceUri.fsPath) }), '/', this.title, externalsFolder.length > 0 ? externalsFolder : configDir);
   }
   smcUtils = new ScmUtils();
   private async _initialize(): Promise<boolean> {
     const pkgmetaFileString = (await Workspace.fs.readFile(this.resourceUri)).toString();
     this.pkgMetaType = this.resourceUri.toString().indexOf('.yaml') > -1 ? 'yaml' : 'dot';
     this._directives = YamlParse(pkgmetaFileString, { reviver: (key, value: any) => this.yamlReviver(key, value) });
-/*     const externals = this.directives.externals;
-    let res = [];
-    if(externals && this.title === 'WeakAuras'){
-      for (let idx = 0; idx < externals.length; idx++) {
-        const external = externals[idx];
-        const destDir: string = <string>external[0];
-        const externalProps: ArrayOfArrays = <ArrayOfArrays>external[1];
-        const repoUrl: string = externalProps.find(v => v[0] === 'url')![1];
-        const repoType: string = externalProps.find(v => v[0] === 'type')![1];
-        const baseDir = Workspace.workspaceFolders![0].uri;
-        const libFolder = await this.libFolder();
-        const results = await this.smcUtils.gitSvnClone({
-          baseDir: baseDir,
-          cloneDir: libFolder.with({path: Uri.joinPath(libFolder,'/.clone').path}),
-          destDir: destDir,
-          type: repoType,
-          url: repoUrl
-        });
-        res.push(results);
-      }
-    }
-    log(res); */
+    /*     const externals = this.directives.externals;
+        let res = [];
+        if(externals && this.title === 'WeakAuras'){
+          for (let idx = 0; idx < externals.length; idx++) {
+            const external = externals[idx];
+            const destDir: string = <string>external[0];
+            const externalProps: ArrayOfArrays = <ArrayOfArrays>external[1];
+            const repoUrl: string = externalProps.find(v => v[0] === 'url')![1];
+            const repoType: string = externalProps.find(v => v[0] === 'type')![1];
+            const baseDir = Workspace.workspaceFolders![0].uri;
+            const libFolder = await this.libFolder();
+            const results = await this.smcUtils.gitSvnClone({
+              baseDir: baseDir,
+              cloneDir: libFolder.with({path: Uri.joinPath(libFolder,'/.clone').path}),
+              destDir: destDir,
+              type: repoType,
+              url: repoUrl
+            });
+            res.push(results);
+          }
+        }
+        log(res); */
     return true;
   }
 

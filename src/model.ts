@@ -3,7 +3,7 @@ import { AddonOutlineProvider } from './addonOutlineProvider';
 import { WadNotifcationProvider } from './notificationProvider';
 import { TocFile } from './tocFile';
 import { PkgmetaFile } from './pkgmetaFile';
-import { anyEvent, dispose, filterEvent } from './msUtil';
+import { anyEvent, dispose, filterEvent } from './msutil';
 
 type TrackedFile = TocFile | PkgmetaFile;
 export class WadModel{

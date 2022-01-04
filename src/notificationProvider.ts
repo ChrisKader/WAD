@@ -1,5 +1,5 @@
 import { OutputChannel, Uri, window as Window, workspace } from 'vscode';
-import { logTimestamp } from './msUtil';
+import { logTimestamp } from './msutil';
 
 export class WadNotifcationProvider {
   private readonly _outputChannel: OutputChannel;
