@@ -56,7 +56,7 @@ interface PkgMetaManualChangelog {
   "markup-type": string;
 }
 
-type DirectiveTypes = string | string[] | KeyedPkgMetaExternal | PkgMetaMoveFolders[] | PkgMetaManualChangelog | undefined;
+type DirectiveTypes = string | External[] | StringArray[] | ManualChangeLog | MovedFolder[] | undefined;
 
 class External {
   public url: string;
@@ -119,22 +119,74 @@ class StringArray {
   }
 }
 
+class ManualChangeLog {
+  get iconPath(){
+    return new ThemeIcon('request-changes');
+  }
+
+  get treeItemOptions(): WadTreeItemOptions{
+    return {
+      label: 'Manual Changelog',
+      description: this.filename,
+      type: 'pkgmeta',
+      iconPath: this.iconPath,
+      tooltip: this.markupType
+    };
+  }
+
+  constructor(
+    public filename: string,
+    public markupType: string,
+  ){
+
+  }
+}
+
+class MovedFolder {
+  get iconPath(){
+    return undefined;
+  }
+
+  get treeItemOptions(): WadTreeItemOptions{
+    return {
+      label: `${this.source}  →`,
+      description: this.destination,
+      type: 'pkgmeta',
+      iconPath: this.iconPath
+    };
+  }
+
+  constructor(
+    public source: string,
+    public destination: string,
+  ){
+
+  }
+}
+
 export class PkgmetaFile {
   private _directives: {
     [key: string]: DirectiveTypes
     "package-as": string;
-    "externals"?: KeyedPkgMetaExternal;
-    "move-folders"?: PkgMetaMoveFolders[];
-    "ignore"?: string[];
-    "required-dependencies"?: string[];
-    "optional-dependencies"?: string[];
-    "manual-changelog"?: PkgMetaManualChangelog;
+    "externals": External[];
+    "move-folders": MovedFolder[];
+    "ignore": StringArray[];
+    "required-dependencies": StringArray[];
+    "optional-dependencies": StringArray[];
+    "manual-changelog"?: ManualChangeLog;
     "license-output"?: string;
-    "embdded-libraries"?: string[];
-    "tools-used"?: string[];
+    "embdded-libraries": StringArray[];
+    "tools-used": StringArray[];
     "enable-nolib-creation"?: string;
   } = {
-      "package-as": "Loading"
+      "package-as": "Loading",
+      "externals": [],
+      "move-folders": [],
+      "ignore": [],
+      "required-dependencies": [],
+      "optional-dependencies": [],
+      "embdded-libraries": [],
+      "tools-used": [],
     };
 
   get directives() {
@@ -154,13 +206,15 @@ export class PkgmetaFile {
     }
 
     if (typedKey === 'manual-changelog') {
-      const rtnValue: PkgMetaManualChangelog = typeof (value) === 'string' ? Object.assign({}, { filename: value }, { 'markup-type': 'text' }) : Object.assign({}, { 'markup-type': 'text' }, value);
-      return rtnValue;
+      const filename = typeof (value) === 'string' ? value : value.filename;
+      const type = typeof (value) === 'string' ? 'text' : value['markup-type'];
+      return new ManualChangeLog(filename, type);
     }
 
     if (typedKey === 'move-folders') {
-      const rtnValue: PkgMetaMoveFolders = value;
-      return rtnValue;
+      return Object.keys(value).map(v => {
+        return new MovedFolder(v, value[v]);
+      });
     }
 
     if (typedKey === 'ignore' || typedKey === 'required-dependencies' || typedKey === 'optional-dependencies' || typedKey === 'embedded-libraries' || typedKey === 'tools-used') {
