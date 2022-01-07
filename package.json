@@ -1,100 +1,120 @@
 {
-		"name": "wad",
-		"displayName": "WoW Addon Dev",
-		"description": "",
-		"version": "0.0.1",
-		"engines": {
-				"vscode": "^1.63.0"
-		},
-		"categories": [
-				"Other"
-		],
-		"activationEvents": [
-				"onStartupFinished"
-		],
-		"main": "./dist/extension.js",
-		"contributes": {
-				"configuration": [
-						{
-								"title": "WoW Addon Developer Tools",
-								"properties": {
-										"wad.defaultLibFolder": {
-												"type": "string",
-												"default": "/Libs",
-												"description": "Path of the folder used for embedded libraries.\nNote: This path resolved relative to an addons TOC file."
-										}
-								}
-						}
-				],
-				"commands": [
-						{
-								"command": "wad.refreshPkgMetaFiles",
-								"title": "Refresk Pkg Meta Tree",
-								"icon": "$(refresh)"
-						},
-						{
-								"command": "wad.installExternal",
-								"title": "Install External",
-								"icon": "$(refresh)"
-						}
-				],
-				"menus": {
-						"view/title": [
-								{
-										"command": "wad.refreshPkgMetaFiles",
-										"when": "view == wadTreeView",
-										"group": "navigation"
-								}
-						]
-				},
-				"views": {
-						"explorer": [
-								{
-										"id": "wadTreeView",
-										"name": "WoW Addon Dev"
-								}
-						]
-				},
-				"view/item/context": [
-						{
-								"command": "wad.installExternal",
-								"when": "view == wadTreeView && viewItem == external",
-								"group": "inline"
-						}
-				]
-		},
-		"scripts": {
-				"vscode:prepublish": "yarn run package",
-				"compile": "webpack",
-				"watch": "webpack --watch",
-				"package": "webpack --mode production --devtool hidden-source-map",
-				"compile-tests": "tsc -p . --outDir out",
-				"watch-tests": "tsc -p . -w --outDir out",
-				"pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
-				"lint": "eslint src --ext ts",
-				"test": "node ./out/test/runTest.js"
-		},
-		"devDependencies": {
-				"@types/glob": "^7.1.4",
-				"@types/mocha": "^9.0.0",
-				"@types/node": "14.x",
-				"@types/uuid": "^8.3.3",
-				"@types/vscode": "^1.63.0",
-				"@types/which": "^1.0.28",
-				"@typescript-eslint/eslint-plugin": "^5.1.0",
-				"@typescript-eslint/parser": "^5.1.0",
-				"@vscode/test-electron": "^1.6.2",
-				"eslint": "^8.1.0",
-				"glob": "^7.1.7",
-				"mocha": "^9.1.3",
-				"ts-loader": "^9.2.5",
-				"typescript": "^4.4.4",
-				"webpack": "^5.52.1",
-				"webpack-cli": "^4.8.0"
-		},
-		"dependencies": {
-				"uuid": "^8.3.2",
-				"which": "^1.3.0",
-				"yaml": "next"
-		}
+  "name": "wad",
+  "displayName": "WoW Addon Dev",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.63.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": [
+      {
+        "title": "WoW Addon Developer Tools",
+        "properties": {
+          "wad.defaultLibFolder": {
+            "type": "string",
+            "default": "/Libs",
+            "description": "Path of the folder used for embedded libraries.\nNote: This path resolved relative to an addons TOC file."
+          }
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "wad.refreshPkgMetaFiles",
+        "title": "Refresk Pkg Meta Tree",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "wad.installExternal",
+        "title": "Install External",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "wad.installExternals",
+        "title": "Install All External",
+        "icon": "$(cloud-download)"
+      }
+    ],
+
+    "menus": {
+      "view/title": [
+        {
+          "command": "wad.refreshPkgMetaFiles",
+          "when": "view == wadTreeView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "wad.installExternals",
+          "when": "view == wadTreeView && viewItem == ExternalsParent",
+          "group": "inline"
+        },
+        {
+          "command": "wad.installExternal",
+          "when": "view == wadTreeView && viewItem == pkgMetaExternal",
+          "group": "inline"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "wadTreeView",
+          "name": "WoW Addon Dev"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "yarn run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/byline": "^4.2.33",
+    "@types/glob": "^7.1.4",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "14.x",
+    "@types/semver": "^7.3.9",
+    "@types/uuid": "^8.3.3",
+    "@types/vscode": "^1.63.0",
+    "@types/which": "^1.0.28",
+    "@types/xml2js": "^0.4.9",
+    "@typescript-eslint/eslint-plugin": "^5.1.0",
+    "@typescript-eslint/parser": "^5.1.0",
+    "@vscode/test-electron": "^1.6.2",
+    "eslint": "^8.1.0",
+    "iconv-lite-umd": "0.6.8",
+    "glob": "^7.1.7",
+    "mocha": "^9.1.3",
+    "ts-loader": "^9.2.5",
+    "typescript": "^4.4.4",
+    "webpack": "^5.52.1",
+    "webpack-cli": "^4.8.0",
+    "eslint-plugin-header": "3.1.1"
+  },
+  "dependencies": {
+    "byline": "^5.0.0",
+    "jschardet": "^3.0.0",
+    "semver": "^7.3.5",
+    "uuid": "^8.3.2",
+    "which": "^1.3.0",
+    "xml2js": "^0.4.23",
+    "yaml": "next"
+  }
 }

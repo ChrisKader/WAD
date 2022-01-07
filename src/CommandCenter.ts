@@ -1,6 +1,9 @@
 import * as path from 'path';
-import { commands, Disposable, extensions as Extensions, OutputChannel, window, Uri, Progress, ProgressLocation, CancellationToken } from 'vscode';
+import { commands, Disposable, extensions as Extensions, OutputChannel, window, Uri, Progress, ProgressLocation, CancellationToken, workspace as Workspace } from 'vscode';
 import { WadModel } from './model';
+import { log } from './msutil';
+import { ExternalsRoot,ExternalsChild } from './pkgmetaFile';
+import { Scm } from './Scm';
 
 interface WadCommandOptions {
 	uri?: boolean;
@@ -29,6 +32,7 @@ export class CommandCenter {
 
 	constructor(
 		private model: WadModel,
+    private scm: Scm
 	) {
 		this.disposables = watCommands.map(({ commandId, key, method, options }) => {
 			const command = this.createCommand(commandId, key, method, options);
@@ -37,9 +41,19 @@ export class CommandCenter {
 		});
 	}
 
-  @command('wad.installExternal')
-  async installExternal(){
+  @command('wad.installExternals')
+  async installExternals(e:ExternalsRoot):Promise<ReturnType<typeof this.installExternal>[]>{
+    return e.children.map(async (c) => {
+      return await this.installExternal(c);
+    })
+  }
 
+  @command('wad.installExternal')
+  async installExternal(e:ExternalsChild):Promise<boolean>{
+    let checkoutReturn = (await (await this.scm.get(e.directiveProps.type)).checkout(e.directiveProps.url,e.directiveProps.targetUri));
+    await Workspace.fs.delete(checkoutReturn.options.targetUri,{recursive: true, useTrash: false}).then(void 0,log)
+    await Workspace.fs.copy(checkoutReturn.checkoutDir,checkoutReturn.options.targetUri).then(void 0,log)
+    return true
   }
 
 	@command('wad.updateFileDecoration')

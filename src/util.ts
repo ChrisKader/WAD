@@ -1,12 +1,19 @@
-import { Uri, FileType, workspace as Workspace } from "vscode";
-import { log } from "./msutil";
-import * as path from "path";
+import { Uri, FileType, workspace as Workspace } from 'vscode';
+import { log } from './msutil';
+import * as path from 'path';
 
-const iconsRootPath = path.join(__dirname, "..", "resources", "icons");
+const iconsRootPath = path.join(__dirname, '..', 'resources', 'icons');
+
+export function camelCase(str:string) {
+  return str.split(' ')
+     .map(a => a.trim())
+     .map(a => a[0].toUpperCase() + a.substring(1))
+     .join('');
+}
 
 export const regExObj = {
   oldReposRegex: /(?:.*(?<type>(?:git|svn|hg))(?<path>\.(?:curseforge|wowace)\.com\/.+)\/mainline(?<end>\/trunk)?)/,
-  svnCheckRegex: /^(?:svn|.+):\/{2}.+\..+(?:(?:.+)?\/trunk\/)/
+  svnCheckRegex: /^(?:svn|.+):\/{2}.+\..+(?:(?:.+)?\/trunk\/?)/
 };
 
 export function getIconUri(iconName: string, theme: string): Uri {
@@ -15,7 +22,7 @@ export function getIconUri(iconName: string, theme: string): Uri {
 
 export function toProperCase(s: string) {
   return s.replace(/\w\S*/g, function (txt) { return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase(); });
-};
+}
 export async function workspaceRecursiveCopy(sourceDir: Uri, targetDir: Uri, ignore?: string[]): Promise<{ sourceDir: string, targetDir: string, complete: boolean, copyResults: string[][] }> {
   const sourceDirFs = sourceDir.fsPath;
   const targetDirFs = targetDir.fsPath;

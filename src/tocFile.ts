@@ -54,7 +54,7 @@ export class TocFile {
   private get treeItemEntries(){
     return this.entries.filter(entry => entry.type === 'metadata').map(entry => {
       let wadItemTreeOptions: WadTreeItemOptions = {
-        type: 'toc',
+        fileType: 'toc',
         label: entry.field,
         description: entry.value,
         uri: this.resourceUri,
@@ -65,7 +65,7 @@ export class TocFile {
 
   get treeItem(): WadTreeItem {
     let wadItemTreeOptions: WadTreeItemOptions = {
-      type: 'toc',
+      fileType: 'toc',
       label: this.title,
       children: this.treeItemEntries,
       description: Basename(this.resourceUri.fsPath),

@@ -1,247 +1,501 @@
-import { ThemeIcon, TreeItemCollapsibleState, Uri, workspace as Workspace } from 'vscode';
+import { ThemeIcon, TreeItem, TreeItemCollapsibleState, Uri, workspace as Workspace } from 'vscode';
 import { parse as YamlParse } from 'yaml';
 import { WadTreeItem, WadTreeItemOptions } from './treeItem';
 import { basename as Basename, dirname as Dirname, join as Join } from 'path';
-import { log } from './msutil';
+import { v4 } from 'uuid';
 import { ScmUtils } from './scmUtils';
-import { getIconUri, toProperCase, regExObj } from "./util";
+import { getIconUri, toProperCase, regExObj, camelCase } from './util';
+import { TValidScm } from './Scm';
 
-export interface ApiTokens {
-  curseforge?: string,
-  wowinterface?: string,
-  wago?: string,
-  github?: string,
+type DirectiveType = 'package-as' | 'externals' | 'move-folders' | 'ignore' | 'required-dependencies' | 'optional-dependencies' | 'manual-changelog' | 'license-output' | 'embedded-libraries' | 'tools-used' | 'enable-nolib-creation';
+type ArrayOfStringsDirective = 'ignore' | 'required-dependencies' | 'optional-dependencies' | 'embedded-libraries' | 'tools-used';
+type DirectiveChildren = ExternalsChild | MoveFoldersChild | ArrayOfStringsChild;
+type DirectiveProps = ExtDirChildOpt | MoveFoldersChildOpt | PkgAsRootOpt | EnableNoLibOpt | ManualChangeLogOpt | ArrayOfStringsOpt;
+
+interface PkgAsRootOpt {
+  name: string
 }
 
-interface PackagerOptions {
-  createNoLib?: boolean;           // -s               Create a stripped-down "nolib" package.
-  curseId?: string;                // -p curse-id      Set the project id used on CurseForge for localization and uploading. (Use 0 to unset the TOC value)
-  gameVersion?: string;            // -g game-version  Set the game version to use for uploading.
-  keepExistingPackageDir?: boolean;// -o               Keep existing package directory, overwriting its contents.
-  pgkMetaFile?: string;            // -m pkgmeta.yaml  Set the pkgmeta file to use.
-  releaseDirectory?: string;       // -r releasedir    Set directory containing the package directory. Defaults to "$topdir/.release".
-  skipCopy?: boolean;              // -c               Skip copying files into the package directory.
-  skipExternalCheckout?: boolean;  // -e               Skip checkout of external repositories.
-  skipLocalization?: boolean;      // -l               Skip @localization@ keyword replacement.
-  skipLocalizationUpload?: boolean;// -L               Only do @localization@ keyword replacement (skip upload to CurseForge).
-  skipUpload?: boolean;            // -d               Skip uploading.
-  skipZip?: boolean;               // -z               Skip zip file creation.
-  topLevelDirectory?: string;      // -t topdir        Set top-level directory of checkout.
-  unixLineEndings?: boolean;       // -u               Use Unix line-endings.
-  wagoId?: string;                 // -a wago-id       Set the project id used on Wago Addons for uploading. (Use 0 to unset the TOC value)
-  wowInterfaceId?: string;         // -w wowi-id       Set the addon id used on WoWInterface for uploading. (Use 0 to unset the TOC value)
-  zipFileName?: string;            // -n "{template}"  Set the package zip file name and upload label. Use "-n help" for more info. */
-  labelTemplate?: string;
-  tokens?: ApiTokens;
+interface EnableNoLibOpt {
+  status: string
 }
 
-interface PkgMetaExternal {
+interface ExtDirChildOpt {
+  targetUri: Uri,
+  targetDir: string;
   url: string;
-  type: string;
+  type: TValidScm;
   tag?: string;
   branch?: string;
   commit?: string;
 }
 
-interface KeyedPkgMetaExternal {
-  [key: string]: PkgMetaExternal
+interface ArrayOfStringsOpt {
+  pattern: string
 }
 
-interface PkgMetaMoveFolders {
-  [key: string]: string
+interface MoveFoldersChildOpt {
+  sourceDir: string;
+  targetDir: string;
 }
 
-interface PkgMetaManualChangelog {
-  filename: string;
-  "markup-type": string;
+interface ManualChangeLogOpt {
+  filename: string,
+  'markup-type': string
 }
 
-type DirectiveTypes = string | External[] | StringArray[] | ManualChangeLog | MovedFolder[] | undefined;
+abstract class RootBaseDirective {
+  children: DirectiveChildren[] = [];
+  directiveProps: DirectiveProps | undefined;
+  parentOrChild: 'parent' | 'child' = 'parent';
+  root: boolean = false;
 
-class External {
-  public url: string;
-  public type: string;
-  public tag?: string;
-  public branch?: string;
-  public commit?: string;
-
-  get iconPath(){
-    return this.type === 'svn' ? getIconUri('svn-repo','dark') : new ThemeIcon('git-branch')
+  get id() {
+    return this.uuid;
   }
-  get treeItemOptions(): WadTreeItemOptions{
-    return {
-      label: this.destination,
-      description: this.type,
-      type: 'pkgmeta',
-      tooltip: this.url,
-      iconPath: this.iconPath
-    };
+
+  get label() {
+    return toProperCase(this.directiveType.replace(/-/g, ' '));
+  }
+
+  get fileType() {
+    return 'pkgmeta';
+  }
+
+  get collapsibleState(): TreeItemCollapsibleState {
+    return this.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
+  }
+
+  get contextValue() {
+    return `${camelCase(this.directiveType.replace(/-/gm, ''))}${toProperCase(this.parentOrChild)}`;
+  }
+
+  abstract uuid: string;
+  abstract directiveType: DirectiveType;
+  abstract iconPath: TreeItem['iconPath'];
+  abstract description: string | undefined;
+
+  get treeItem() {
+    return new WadTreeItem({
+      id: this.uuid,
+      label: this.label,
+      fileType: this.fileType,
+      iconPath: this.iconPath,
+      description: this.description,
+      collapsibleState: this.collapsibleState,
+      contextValue: this.contextValue,
+      children: this.children,
+    });
+  }
+}
+
+export class ExternalsChild extends RootBaseDirective {
+  directiveProps: ExtDirChildOpt;
+  directiveType: DirectiveType = 'externals';
+  installDir: Uri;
+  pkgMetaFile: PkgmetaFile
+  uuid: string;
+
+  get tooltip() {
+    return this.directiveProps.url;
+  }
+  get collapsibleState() {
+    return TreeItemCollapsibleState.None;
+  }
+
+  get contextValue(): string {
+    return 'pkgMetaExternal';
+  }
+  get description() {
+    return toProperCase(this.directiveProps.type);
+  }
+
+  get iconPath() {
+    return this.directiveProps.type === 'svn' ? getIconUri('svn-repo', 'dark') : new ThemeIcon('git-branch');
+  }
+
+  get label() {
+    return this.directiveProps.targetDir;
+  }
+  constructor(
+    options: ExtDirChildOpt,
+    pkgMetaFile: PkgmetaFile
+  ) {
+    super()
+    this.pkgMetaFile = pkgMetaFile;
+    this.parentOrChild = 'child';
+    this.uuid = v4();
+    this.directiveProps = options;
+    this.installDir = Uri.parse('');
+  }
+}
+
+export class ExternalsRoot extends RootBaseDirective {
+  directiveType: DirectiveType = 'externals';
+  children: ExternalsChild[] = [];
+  uuid: string;
+  libUri: Uri;
+
+  addChild(options: ExtDirChildOpt) {
+    return new ExternalsChild(options, this.pkgMetaFile);
+  }
+
+  addChildren(options: ExtDirChildOpt[]) {
+    return options.map(option => this.addChild(option));
+  }
+
+  get collapsibleState() {
+    return this.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
+  }
+
+  get childrenTreeItems() {
+    return this.children.map(child => child.treeItem);
+  }
+
+  get description() {
+    return this.children.length.toString();
+  }
+
+  get iconPath() {
+    return new ThemeIcon('cloud-download');
+  }
+  pkgMetaFile: PkgmetaFile
+  constructor(
+    libUri: Uri,
+    pkgMetaFile: PkgmetaFile,
+    children?: ExtDirChildOpt[]
+  ) {
+    super();
+    this.uuid = v4();
+    this.libUri = libUri;
+    this.pkgMetaFile = pkgMetaFile
+    if (children) {
+      this.children = this.addChildren(children!);
+    }
+  }
+}
+
+class MoveFoldersChild extends RootBaseDirective {
+  directiveType: DirectiveType = 'move-folders';
+  directiveProps: MoveFoldersChildOpt;
+  uuid: string;
+
+  get collapsibleState() {
+    return TreeItemCollapsibleState.None;
+  }
+
+  get description() {
+    return this.directiveProps.targetDir;
+  }
+
+  get iconPath() {
+    return new ThemeIcon('triangle-right');
+  }
+
+  get label() {
+    return this.directiveProps.sourceDir;
+  }
+
+  constructor(options: MoveFoldersChildOpt) {
+    super();
+    this.uuid = v4();
+    this.directiveProps = options;
+    this.parentOrChild = 'child';
+  }
+}
+
+class MoveFoldersRoot extends RootBaseDirective {
+  directiveType: DirectiveType = 'move-folders';
+  children: MoveFoldersChild[] = [];
+  uuid: string;
+
+  addChild(options: MoveFoldersChildOpt) {
+    return this.children.push(new MoveFoldersChild(options));
+  }
+
+  addChildren(options: MoveFoldersChildOpt[]) {
+    return options.map(option => this.addChild(option));
+  }
+
+  get collapsibleState() {
+    return this.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
+  }
+
+  get childrenTreeItems() {
+    return this.children.map(child => child.treeItem);
+  }
+
+  get description() {
+    return this.children.length.toString();
+  }
+
+  get iconPath() {
+    return new ThemeIcon('move');
   }
 
   constructor(
-    public destination: string,
-    options: PkgMetaExternal,
-  ){
-    this.url = options.url;
-    this.type = options.type;
-    this.tag = options.tag;
-    this.branch = options.branch;
-    this.commit = options.commit;
+    children?: MoveFoldersChildOpt[]
+  ) {
+    super();
+    this.uuid = v4();
+    this.addChildren(children!);
   }
 }
-type ArrayDirectives = 'ignore' | 'required-dependencies' | 'optional-dependencies' | 'embedded-libraries' | 'tools-used';
 
-class StringArray {
-  get iconPath(){
-    const iconObject: { [key: string]: string } = {
+class PackageAsRoot extends RootBaseDirective {
+  directiveType: DirectiveType = 'package-as';
+  directiveProps: PkgAsRootOpt;
+  uuid: string;
+
+  get description() {
+    return this.directiveProps.name;
+  }
+
+  get iconPath() {
+    return new ThemeIcon('package');
+  }
+
+  constructor(
+    name: string
+  ) {
+    super();
+    this.uuid = v4();
+    this.directiveProps = {
+      name
+    };
+  }
+}
+
+class EnableNolibCreationRoot extends RootBaseDirective {
+  directiveType: DirectiveType = 'enable-nolib-creation';
+  directiveProps: EnableNoLibOpt;
+  uuid: string;
+
+  get description() {
+    return this.directiveProps.status;
+  }
+
+  get iconPath() {
+    return new ThemeIcon('package');
+  }
+
+  constructor(
+    status: string
+  ) {
+    super();
+    this.uuid = v4();
+    this.directiveProps = {
+      status
+    };
+  }
+}
+
+class LicenseOutputRoot extends RootBaseDirective {
+  directiveType: DirectiveType = 'license-output';
+  directiveProps: { name: string };
+  uuid: string;
+
+  get description() {
+    return this.directiveProps.name;
+  }
+
+  get iconPath() {
+    return new ThemeIcon('package');
+  }
+
+  constructor(
+    name: string
+  ) {
+    super();
+    this.uuid = v4();
+    this.directiveProps = {
+      name
+    };
+  }
+}
+
+class ManualChangelogRoot extends RootBaseDirective {
+  directiveType: DirectiveType = 'manual-changelog';
+  directiveProps: ManualChangeLogOpt;
+  uuid: string;
+
+  get description() {
+    return this.directiveProps.filename;
+  }
+
+  get iconPath() {
+    return new ThemeIcon('package');
+  }
+
+  constructor(
+    options: ManualChangeLogOpt
+  ) {
+    super();
+    this.uuid = v4();
+    this.directiveProps = options;
+  }
+}
+
+class ArrayOfStringsChild extends RootBaseDirective {
+  directiveType: ArrayOfStringsDirective;
+  directiveProps: ArrayOfStringsOpt;
+  uuid: string;
+
+  get collapsibleState() {
+    return TreeItemCollapsibleState.None;
+  }
+
+  get description() {
+    return undefined;
+  }
+
+  get iconPath() {
+    const iconObject = {
       'ignore': 'stop',
       'required-dependencies': 'tools',
       'optional-dependencies': 'tools',
       'embedded-libraries': 'tools',
       'tools-used': 'tools',
     };
-    return new ThemeIcon(iconObject[this.type]);
+    return new ThemeIcon(iconObject[this.directiveType]);
   }
 
-  get treeItemOptions(): WadTreeItemOptions{
-    return {
-      label: this.item,
-      type: 'pkgmeta',
-      iconPath: this.iconPath
-    };
+  get label() {
+    return this.directiveProps.pattern;
   }
 
-  constructor(
-    public type: ArrayDirectives,
-    public item: string
-  ){
-    this.type = type;
+  constructor(options: ArrayOfStringsOpt, directiveType: ArrayOfStringsDirective) {
+    super();
+    this.parentOrChild = 'parent';
+    this.uuid = v4();
+    this.directiveProps = options;
+    this.directiveType = directiveType;
   }
 }
 
-class ManualChangeLog {
-  get iconPath(){
-    return new ThemeIcon('request-changes');
+class ArrayOfStringsRoot extends RootBaseDirective {
+  directiveType: ArrayOfStringsDirective;
+  children: ArrayOfStringsChild[] = [];
+  uuid: string;
+
+  addChild(options: ArrayOfStringsOpt) {
+    return this.children.push(new ArrayOfStringsChild(options, this.directiveType));
   }
 
-  get treeItemOptions(): WadTreeItemOptions{
-    return {
-      label: 'Manual Changelog',
-      description: this.filename,
-      type: 'pkgmeta',
-      iconPath: this.iconPath,
-      tooltip: this.markupType
-    };
+  addChildren(options: ArrayOfStringsOpt[]) {
+    return options.map(option => this.addChild(option));
   }
 
-  constructor(
-    public filename: string,
-    public markupType: string,
-  ){
-
-  }
-}
-
-class MovedFolder {
-  get iconPath(){
-    return undefined;
+  get collapsibleState() {
+    return this.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
   }
 
-  get treeItemOptions(): WadTreeItemOptions{
-    return {
-      label: `${this.source}  →`,
-      description: this.destination,
-      type: 'pkgmeta',
-      iconPath: this.iconPath
-    };
+  get childrenTreeItems() {
+    return this.children.map(child => child.treeItem);
+  }
+
+  get description() {
+    return this.children.length.toString();
+  }
+
+  get iconPath() {
+    return new ThemeIcon('gear');
   }
 
   constructor(
-    public source: string,
-    public destination: string,
-  ){
-
+    directiveType: ArrayOfStringsDirective,
+    children?: ArrayOfStringsOpt[],
+  ) {
+    super();
+    this.uuid = v4();
+    this.directiveType = directiveType;
+    this.addChildren(children!);
   }
 }
+
+class PkgMetaFileRoot {
+
+}
+type RootDirectives = ExternalsRoot | MoveFoldersRoot | PackageAsRoot | EnableNolibCreationRoot | LicenseOutputRoot | ManualChangelogRoot | ArrayOfStringsRoot;
+
+const directivesShown = [
+  //'package-as',
+  'externals',
+  'move-folders',
+  'ignore',
+  'required-dependencies',
+  'optional-dependencies',
+  'manual-changelog',
+  'license-output',
+  'embedded-libraries',
+  'tools-used',
+  //'enable-nolib-creation'
+];
+
+type Directives = {
+  [Key in DirectiveType as string]?: RootDirectives;
+};
 
 export class PkgmetaFile {
-  private _directives: {
-    [key: string]: DirectiveTypes
-    "package-as": string;
-    "externals": External[];
-    "move-folders": MovedFolder[];
-    "ignore": StringArray[];
-    "required-dependencies": StringArray[];
-    "optional-dependencies": StringArray[];
-    "manual-changelog"?: ManualChangeLog;
-    "license-output"?: string;
-    "embdded-libraries": StringArray[];
-    "tools-used": StringArray[];
-    "enable-nolib-creation"?: string;
-  } = {
-      "package-as": "Loading",
-      "externals": [],
-      "move-folders": [],
-      "ignore": [],
-      "required-dependencies": [],
-      "optional-dependencies": [],
-      "embdded-libraries": [],
-      "tools-used": [],
-    };
+
+  private _directives: Directives = {};
 
   get directives() {
     return this._directives;
   }
 
-  private yamlReviver(key: unknown, value: any) {
-    const typedKey = <string>key;
-    if (!["package-as", "externals", "move-folders", "ignore", "required-dependencies",
-      "optional-dependencies", "manual-changelog", "license-output", "embdded-libraries",
-      "tools-used", "enable-nolib-creation"].includes(typedKey)) {
+  private yamlReviver(key: unknown, value: any, libUri: Uri) {
+    const typedKey = key as string;
+    if (!['package-as', 'externals', 'move-folders', 'ignore', 'required-dependencies',
+      'optional-dependencies', 'manual-changelog', 'license-output', 'embedded-libraries',
+      'tools-used', 'enable-nolib-creation'].includes(typedKey)) {
       return value;
     }
 
     if (typedKey === 'package-as' || typedKey === 'enable-nolib-creation' || typedKey === 'license-output') {
-      return <string>value;
+      return typedKey === 'package-as' ? new PackageAsRoot(value) : typedKey === 'enable-nolib-creation' ? new EnableNolibCreationRoot(value) : typedKey === 'license-output' ? new LicenseOutputRoot(value) : '';
     }
 
     if (typedKey === 'manual-changelog') {
       const filename = typeof (value) === 'string' ? value : value.filename;
       const type = typeof (value) === 'string' ? 'text' : value['markup-type'];
-      return new ManualChangeLog(filename, type);
+      return new ManualChangelogRoot({ filename: filename, 'markup-type': type });
     }
 
     if (typedKey === 'move-folders') {
-      return Object.keys(value).map(v => {
-        return new MovedFolder(v, value[v]);
-      });
+      let rtnVal = new MoveFoldersRoot(Object.keys(value).map(v => { return { sourceDir: v, targetDir: value[v] }; }));
+      return rtnVal;
     }
 
     if (typedKey === 'ignore' || typedKey === 'required-dependencies' || typedKey === 'optional-dependencies' || typedKey === 'embedded-libraries' || typedKey === 'tools-used') {
-      return value.map((v:string)=>{
-        return new StringArray(typedKey,v);
-      });
+      const rtnVa1 = new ArrayOfStringsRoot(typedKey, value.map((v: string) => { return { pattern: v }; }));
+      return rtnVa1;
     }
 
     if (typedKey === 'externals') {
-      let externals: External[] = [];
+      let children: ExtDirChildOpt[] = [];
       let property: keyof typeof value;
       for (property in value) {
-        const external: PkgMetaExternal = typeof (value[property]) === 'string' ? Object.assign({}, { url: value[property], type: 'git' }) : <PkgMetaExternal>Object.assign({}, <PkgMetaExternal>value[property]);
-        const checkForOldReps = regExObj.oldReposRegex.exec(external.url)?.groups;
+        const oldExt = value[property];
+
+        let externalRoot: ExtDirChildOpt = {
+          targetDir: property,
+          targetUri: Uri.joinPath(Uri.file(Dirname(this.resourceUri.fsPath)), property),
+          type: 'git',
+          ...typeof (oldExt) === 'string' ? { url: oldExt } : oldExt
+        };
+
+        const checkForOldReps = regExObj.oldReposRegex.exec(externalRoot.url)?.groups;
         if (checkForOldReps && checkForOldReps.path && checkForOldReps.type) {
-          external.url = `https://repo${checkForOldReps.path}${checkForOldReps.end ? checkForOldReps.end : ''}`;
-          external.type = checkForOldReps.type;
+          externalRoot.url = `https://repo${checkForOldReps.path}${checkForOldReps.end ? checkForOldReps.end : ''}`;
+          externalRoot.type = checkForOldReps.type as TValidScm;
         } else {
-          if (external.url.match(regExObj.svnCheckRegex)) {
-            external.type = 'svn';
-          } else {
-            external.type = 'git';
-          }
+          if (externalRoot.url.match(regExObj.svnCheckRegex)) { externalRoot.type = 'svn'; }
         }
-        externals.push(new External(property,external));
+        children.push(externalRoot);
       }
-      return externals;
+
+      return new ExternalsRoot(libUri, this, children);
     }
   }
 
@@ -249,160 +503,23 @@ export class PkgmetaFile {
   public initialized: Promise<boolean>;
 
   get title(): string {
-    return this._directives['package-as'];
-  }
-
-  private generateTreePropertyChildren(source: DirectiveTypes, directiveType: string): WadTreeItemOptions[] {
-    let autoProps = ['iconPath', 'uri', 'label', 'description', 'command', 'contextValue'];
-    const sourceArr: string[] = directiveType === 'move-folders' ? Object.keys(Object(source)) : <string[]>source;
-
-    const iconObject: { [key: string]: string } = {
-      'externals': 'cloud-download',
-      'manual-changelog': 'request-changes',
-      'ignore': 'stop',
-      'required-dependencies': 'tools',
-      'optional-dependencies': 'tools',
-      'embedded-libraries': 'tools',
-      'tools-used': 'tools',
-    };
-    return sourceArr.map(sourceString => {
-      let autoPropHolder: WadTreeItemOptions = {
-        iconPath: undefined,
-        command: undefined,
-        description: undefined,
-        contextValue: undefined,
-        label: sourceString,
-        type: 'pkgmeta',
-        uri: undefined,
-      };
-
-      for (let idx = 0; idx < autoProps.length; idx++) {
-        const autoProp = autoProps[idx];
-        if (autoProp === 'label') {
-          if (directiveType === 'move-folders') {
-            autoPropHolder[autoProp] = `${sourceString} →`;
-          }
-        }
-        if (autoProp === 'description') {
-          if (directiveType === 'move-folders') {
-            autoPropHolder[autoProp] = Object(source)[sourceString];
-          }
-        } else if (autoProp === 'iconPath' && iconObject[directiveType]) {
-          autoPropHolder[autoProp] = new ThemeIcon(iconObject[directiveType]);
-        } else if (['resourceUri', 'uri'].includes(autoProp)) {
-          autoPropHolder[autoProp] = undefined;
-        } else if (['command', 'contextValue'].includes(autoProp)) {
-          autoPropHolder[autoProp] = undefined;
-        }
-      }
-      return autoPropHolder;
-    });
-  }
-
-  private generateTreeProperty(source: DirectiveTypes, directiveType: string, child?: boolean): WadTreeItemOptions {
-    let autoProps = ['label', 'type', 'iconPath', 'description', 'resourceUri', 'uri', 'tooltip', 'command', 'collapsibleState', 'contextValue', 'children'];
-
-    let autoPropHolder: WadTreeItemOptions = {
-      iconPath: undefined,
-      description: undefined,
-      resourceUri: undefined,
-      tooltip: undefined,
-      command: undefined,
-      collapsibleState: undefined,
-      contextValue: undefined,
-      label: '',
-      type: 'pkgmeta',
-      children: undefined,
-      uri: undefined,
-    };
-
-    for (let idx = 0; idx < autoProps.length; idx++) {
-      const autoProp = autoProps[idx];
-      if (autoProp === 'children') {
-        if (['ignore', 'move-folders', 'required-dependencies', 'optional-dependencies', 'embedded-libraries', 'tools-used'].includes(directiveType)) {
-          const arr: string[] = <string[]>source;
-          autoPropHolder[autoProp] = this.generateTreePropertyChildren(source, directiveType).map(v => {
-            return new WadTreeItem(v);
-          });
-        }
-        /* if(directiveType === ('ignore' || 'required-dependencies' || 'optional-dependencies' || 'embedded-libraries' || 'tools-used')){
-          autoPropValue = [];
-        } else {
-          autoPropValue = [];
-        } */
-      } else if (autoProp === 'label') {
-        autoPropHolder[autoProp] = toProperCase(directiveType.replace(/-/g, ' '));
-      } else if (autoProp === 'description') {
-        if (directiveType === 'manual-changelog') {
-          const changelog = <PkgMetaManualChangelog>source;
-          autoPropHolder[autoProp] = changelog.filename;
-        } else {
-          autoPropHolder[autoProp] = Object.keys(source!).length.toString();
-        }
-      } else if (autoProp === 'iconPath') {
-        const iconObject: { [key: string]: string } = {
-          'externals': 'cloud-download',
-          'manual-changelog': 'request-changes',
-          'ignore': 'diff-ignored',
-          'move-folders': 'move',
-          'required-dependencies': 'tools',
-          'optional-dependencies': 'tools',
-          'embedded-libraries': 'tools',
-          'tools-used': 'tools',
-        };
-        autoPropHolder[autoProp] = new ThemeIcon(iconObject[directiveType]);
-      } else if (['resourceUri', 'uri'].includes(autoProp)) {
-        autoPropHolder[autoProp] = undefined;
-      } else if (autoProp === 'tooltip') {
-        if (directiveType === 'manual-changelog') {
-          const changelog = <PkgMetaManualChangelog>source;
-          autoPropHolder[autoProp] = changelog['markup-type'];
-        } else {
-          autoPropHolder[autoProp] = undefined;
-        }
-      } else if (autoProp === 'collapsibleState') {
-        if (['externals', 'ignore', 'move-folders', 'required-dependencies', 'optional-dependencies', 'embedded-libraries', 'tools-used'].includes(directiveType)) {
-          if ((Array.isArray(source) || Object.getOwnPropertyNames(source).length > 1)) {
-            autoPropHolder[autoProp] = TreeItemCollapsibleState.Collapsed;
-          } else {
-            autoPropHolder[autoProp] = TreeItemCollapsibleState.None;
-          }
-        } else {
-          autoPropHolder[autoProp] = TreeItemCollapsibleState.None;
-        }
-      } else if (['command', 'contextValue'].includes(autoProp)) {
-        autoPropHolder[autoProp] = undefined;
-      } else if (autoProp === 'root') {
-        autoPropHolder[autoProp] = false;
-      } else if (autoProp === 'type') {
-        autoPropHolder[autoProp] = 'pkgmeta';
-      }
+    const rtnValue = this._directives['package-as'];
+    if (typeof (rtnValue) === 'undefined') {
+      return Basename(Dirname(this.resourceUri.fsPath));
     }
-    return autoPropHolder;
+    return rtnValue.description;
   }
 
   private get treeItemEntries(): WadTreeItem[] {
-    return Object.keys(this._directives).filter(k => {
-      if (k === 'enable-nolib-creation' || k === 'package-as') {
-        return false;
-      }
-      return true;
-    }).map(directiveProp => {
-      return new WadTreeItem(this.generateTreeProperty(this._directives[directiveProp], directiveProp));
+    return Object.keys(this._directives).filter(d => directivesShown.includes(d)).map(directiveProp => {
+      const rtnValue = this._directives[directiveProp]!;
+      return rtnValue.treeItem;
     });
-  }
-
-  get workspaceRelativePath() {
-    return this.resourceUri.fsPath.replace(Workspace.getWorkspaceFolder(this.resourceUri)!.uri.fsPath, '');
-  }
-
-  get filename() {
-    return Basename(this.resourceUri.fsPath);
   }
 
   get treeItem(): WadTreeItem {
     let wadItemTreeOptions: WadTreeItemOptions = {
-      type: 'pkgmeta',
+      fileType: 'pkgmeta',
       label: this.title,
       children: this.treeItemEntries,
       description: this.filename,
@@ -411,6 +528,14 @@ export class PkgmetaFile {
       iconPath: getIconUri(`${/(.+-bcc)|(.+-classic)/.test(this.filename) ? 'wowc' : 'wow'}`, 'dark'),
     };
     return new WadTreeItem(wadItemTreeOptions);
+  }
+
+  get workspaceRelativePath() {
+    return this.resourceUri.fsPath.replace(Workspace.getWorkspaceFolder(this.resourceUri)!.uri.fsPath, '');
+  }
+
+  get filename() {
+    return Basename(this.resourceUri.fsPath);
   }
 
   async tocFile() {
@@ -438,11 +563,11 @@ export class PkgmetaFile {
     return false;
   }
 
-  async libFolder() {
+  async libUri() {
     let potentialFolders = ['/Library', '/Libs', '/Lib'];
     let idx = 0;
     let externalsFolder: string = '';
-    if (this._directives["externals"]) {
+    if (this._directives['externals']) {
       const destDir = ''; //<string><unknown>this._directives.externals[0][0].toString().split('/');
       if (destDir.length > 1) {
         externalsFolder = destDir[destDir.length - 2];
@@ -470,7 +595,9 @@ export class PkgmetaFile {
   private async _initialize(): Promise<boolean> {
     const pkgmetaFileString = (await Workspace.fs.readFile(this.resourceUri)).toString();
     this.pkgMetaType = this.resourceUri.toString().indexOf('.yaml') > -1 ? 'yaml' : 'dot';
-    this._directives = YamlParse(pkgmetaFileString, { reviver: (key, value: any) => this.yamlReviver(key, value) });
+    const libUri = await this.libUri();
+    const tocFile = await this.tocFile();
+    this._directives = YamlParse(pkgmetaFileString, { reviver: (key, value: any) => this.yamlReviver(key, value, libUri) });
     return true;
   }
 

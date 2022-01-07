@@ -3,7 +3,8 @@ import { AddonOutlineProvider } from './addonOutlineProvider';
 import { WadNotifcationProvider } from './notificationProvider';
 import { TocFile } from './tocFile';
 import { PkgmetaFile } from './pkgmetaFile';
-import { anyEvent, dispose, filterEvent } from './msutil';
+import { anyEvent, dispose, filterEvent, log } from './msutil';
+import { Scm } from './Scm';
 
 type TrackedFile = TocFile | PkgmetaFile;
 export class WadModel{
@@ -67,7 +68,6 @@ export class WadModel{
     }
 
     context.subscriptions.push(this._addonOutlineTreeView);
-
     Promise.all([
       this.intialWorkspaceScan()
     ]);

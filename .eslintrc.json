@@ -1,24 +1,68 @@
 {
-    "root": true,
-    "parser": "@typescript-eslint/parser",
-    "parserOptions": {
-        "ecmaVersion": 6,
-        "sourceType": "module"
-    },
-    "plugins": [
-        "@typescript-eslint"
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 6,
+    "sourceType": "module"
+  },
+  "plugins": [
+    "@typescript-eslint",
+    "header"
+  ],
+  "rules": {
+    "no-console":"error",
+    "no-buffer-constructor": "warn",
+    "no-caller": "warn",
+    "no-case-declarations": "warn",
+    "no-debugger": "warn",
+    "no-duplicate-case": "warn",
+    "no-duplicate-imports": "warn",
+    "no-eval": "warn",
+    "no-async-promise-executor": "warn",
+    "no-extra-semi": "warn",
+    "no-new-wrappers": "warn",
+    "no-redeclare": "off",
+    "no-sparse-arrays": "warn",
+    "no-unsafe-finally": "warn",
+    "no-unused-labels": "warn",
+    "constructor-super": "warn",
+    "quotes": [
+      "error",
+      "single"
     ],
-    "rules": {
-        "@typescript-eslint/naming-convention": "warn",
-        "@typescript-eslint/semi": "warn",
-        "curly": "warn",
-        "eqeqeq": "warn",
-        "no-throw-literal": "warn",
-        "semi": "off"
-    },
-    "ignorePatterns": [
-        "out",
-        "dist",
-        "**/*.d.ts"
-    ]
+    "@typescript-eslint/naming-convention": "off",
+    "@typescript-eslint/semi": "warn",
+    "curly": "warn",
+    "eqeqeq": "warn",
+    "no-throw-literal": "warn",
+    "semi": "off"
+  },
+  "no-var": "warn",
+  "jsdoc/no-types": "warn",
+  "semi": "off",
+  "@typescript-eslint/semi": "warn",
+  "@typescript-eslint/naming-convention": [
+    "warn",
+    {
+      "selector": "class",
+      "format": [
+        "PascalCase"
+      ]
+    }
+  ],
+  "code-no-unused-expressions": [
+    "warn",
+    {
+      "allowTernary": true
+    }
+  ],
+  "code-translation-remind": "warn",
+  "code-no-nls-in-standalone-editor": "warn",
+  "code-no-standalone-editor": "warn",
+  "code-no-unexternalized-strings": "warn",
+  "ignorePatterns": [
+    "out",
+    "dist",
+    "**/*.d.ts"
+  ]
 }

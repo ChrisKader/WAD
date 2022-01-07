@@ -1,13 +1,10 @@
-import { Event, EventEmitter, ProviderResult, TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri } from "vscode";
-import { WadTreeItem } from "./treeItem";
-import { TocFile } from "./tocFile";
+import { Event, EventEmitter, ProviderResult, TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri } from 'vscode';
+import { WadTreeItem, WadTreeItemRoot } from './treeItem';
+import { TocFile } from './tocFile';
 
 export class AddonOutlineProvider implements TreeDataProvider<WadTreeItem> {
 
-  private _rootItems: Map<string,WadTreeItem> = new Map([
-    ['tocFiles',new WadTreeItem({label:'TOC Files',type: 'toc', root: true})],
-    ['pkgMetaFiles',new WadTreeItem({label: 'Pkg Meta Files', type: 'pkgmeta', root: true})]
-  ]);
+  private _rootItems: Map<string,WadTreeItem> = new Map();
 
   private _treeItems: Map<string,(WadTreeItem)> = new Map();
 
@@ -25,21 +22,19 @@ export class AddonOutlineProvider implements TreeDataProvider<WadTreeItem> {
   }
 
   getChildren(element?: WadTreeItem): ProviderResult<WadTreeItem[]> {
-    if(element && element.children ){
+    if(element && element.children && element.children.length > 0 ){
       return element.children;
     }
 
-    const rtnOBj = [...this._rootItems].map(([,rootItem])=>{
-      const rootChildren = [...this._treeItems].filter(([_,t])=>t.type === rootItem.type).map(([,t])=>t);
-      rootItem.children = rootChildren;
-      rootItem.description = rootItem.root ? rootChildren.length.toString() : '';
-      rootItem.collapsibleState = rootChildren.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
+    return [...this._rootItems].map(([fileType,rootItem])=>{
+      rootItem.children = [...this._treeItems].filter(([_,t])=>t.fileType === rootItem.fileType).map(([,t])=>t);
+      rootItem.description = rootItem.root ? rootItem.children.length.toString() : undefined;
+      rootItem.collapsibleState = rootItem.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
       return rootItem;
     });
-    return rtnOBj;
   }
 
-  getTreeItem(element: WadTreeItem): WadTreeItem | Thenable<WadTreeItem> {
+  getTreeItem(element: WadTreeItem): WadTreeItem {
     return element;
   }
 
@@ -47,7 +42,7 @@ export class AddonOutlineProvider implements TreeDataProvider<WadTreeItem> {
     return [...this._treeItems].map(([_,v])=>v).find(v => {
       v.id === wadTreeItem.parentId;
     });
-  };
+  }
 
   refresh(treeItem?: WadTreeItem) {
 		if (treeItem) {
@@ -57,6 +52,10 @@ export class AddonOutlineProvider implements TreeDataProvider<WadTreeItem> {
 	}
 
   constructor(){
+    const rootTemplates = [['tocFiles','TOC Files', 'toc'],['pkgMetaFiles','Pkg Meta Files', 'pkgmeta']];
 
+    rootTemplates.map(([id, label, fileType])=>{
+      this._rootItems.set(id,new WadTreeItemRoot(id, label, fileType));
+    });
   }
 }

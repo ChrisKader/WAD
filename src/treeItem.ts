@@ -2,7 +2,6 @@ import { ThemeIcon, TreeItem, TreeItemCollapsibleState, TreeItemLabel, Uri } fro
 import { v4 } from 'uuid';
 
 export interface WadTreeItemOptions {
-  [key:string]:any;
   iconPath?: TreeItem["iconPath"];
   description?: TreeItem["description"];
   resourceUri?: TreeItem["resourceUri"];
@@ -10,40 +9,37 @@ export interface WadTreeItemOptions {
   command?: TreeItem["command"];
   collapsibleState?: TreeItem["collapsibleState"];
   contextValue?: TreeItem["contextValue"];
-
+  id?:string;
   label: string | TreeItemLabel;
-  type: string,
+  fileType: string,
   children?: WadTreeItem[];
   uri?: Uri;
   root?: boolean;
 };
 
 export class WadTreeItem extends TreeItem {
-  public readonly id: string;
+  public readonly id: string = v4();
   public readonly root: boolean = false;
   public label: TreeItem['label'];
-  public type: string;
+  public fileType: string;
   public uri?: Uri;
   public parentId?: string;
+  public children: WadTreeItem[];
+/*   private _children: WadTreeItem[] = [];
 
-  private _children: WadTreeItem[] = [];
-
-  get children(): WadTreeItem[]{
-    return this._children.map(child => {
-      child.parentId = this.id;
-      return child;
+  get children(){
+    return this._children.map(c => {
+      c.parentId = this.id;
+      return c;
     });
-  };
-
-  set children(children:WadTreeItem[]){
-    this._children = children;
-  }
+  } */
 
   constructor(
     options:WadTreeItemOptions
   )
   {
     super(options.label);
+    this.id = options.id || this.id;
     this.iconPath = options.iconPath;
     this.description = options.description;
     this.resourceUri = options.resourceUri;
@@ -52,11 +48,31 @@ export class WadTreeItem extends TreeItem {
     this.collapsibleState = options.collapsibleState;
     this.contextValue = options.contextValue;
     this.uri = options.uri;
-    this.type = options.type;
-    this.root = options.root || this.root;
-    this.id = `${this.type}${this.root ? '-root-' : '-'}${v4()}`;
-    this._children = options.children || [];
-    this.collapsibleState = options.collapsibleState ? options.collapsibleState : this._children.length > 0 || this.root ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
-    this.description = this.root ? this._children.length.toString() : this.description;
+    this.fileType = options.fileType;
+    this.children = options.children ? options.children?.map(c => { c.parentId = this.id; return c; }) : [];
+    this.collapsibleState = options.collapsibleState ? options.collapsibleState : this.children.length > 0 || this.root ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
+    this.description = this.root ? this.children.length.toString() : this.description;
+  }
+}
+
+export class WadTreeItemRoot extends TreeItem {
+  public readonly id: string = v4();
+  public readonly root: boolean = true;
+  public label: TreeItem['label'];
+  public fileType: string;
+  public children: WadTreeItem[] = [];
+
+  constructor(
+    id: string,
+    label: string,
+    fileType: string,
+  )
+  {
+    super(label);
+    this.fileType = fileType;
+    this.collapsibleState = this.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
+    this.description = this.children.length.toString();
+    this.contextValue = `${this.fileType}Root`;
+    this.collapsibleState = TreeItemCollapsibleState.Collapsed
   }
 }
