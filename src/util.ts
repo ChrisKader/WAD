@@ -1,5 +1,5 @@
-import { Uri, FileType, workspace as Workspace } from 'vscode';
-import { log } from './msutil';
+import { Uri, FileType, workspace as Workspace, Disposable, Event } from 'vscode';
+import { combinedDisposable, log } from './msutil';
 import * as path from 'path';
 
 const iconsRootPath = path.join(__dirname, '..', 'resources', 'icons');
@@ -124,4 +124,16 @@ export async function workspaceRecursiveCopy(sourceDir: Uri, targetDir: Uri, ign
     rtnObject.complete = false;
     return rtnObject;
   });
+}
+
+export function anyEventMore<T>(...events: [Event<T>,string][]): Event<T> {
+	return (listener: (e: T,s: string) => any, thisArgs?: any, disposables?: Disposable[]) => {
+		const result = combinedDisposable(events.map(([event,arg]) => event(i => listener.call(thisArgs, i,arg))));
+
+		if (disposables) {
+			disposables.push(result);
+		}
+
+		return result;
+	};
 }

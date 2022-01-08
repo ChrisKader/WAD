@@ -1,6 +1,7 @@
-import { RelativePattern, TreeItem, TreeItemCollapsibleState, Uri, workspace as Workspace } from 'vscode';
+import { Disposable, RelativePattern, TreeItem, TreeItemCollapsibleState, Uri, workspace as Workspace } from 'vscode';
 import {basename as Basename, dirname as Dirname, join as Join} from 'path';
 import { WadTreeItem, WadTreeItemOptions } from './treeItem';
+import { dispose } from './msutil';
 
 interface TocFileEntry {
   line: number;
@@ -167,6 +168,10 @@ export class TocFile {
       }
       return true;
   }
+  disposables: Disposable[] = []
+  dispose(): void {
+    this.disposables = dispose(this.disposables);
+	}
   constructor(
     public resourceUri: Uri
   ){

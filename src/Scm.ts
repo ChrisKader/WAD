@@ -392,10 +392,10 @@ export class Scm {
 		const bufferResult = await exec(scm,child, options.cancellationToken);
 
 		if (options.log !== false) {
-		log('_exec',`> ${scm.scm} ${args.join(' ')} [${Date.now() - startTime}ms]\n`);
+		log('_exec',`> ${scm.scm} ${args.join(' ')} [${Date.now() - startTime}ms] `);
 
 			if (bufferResult.stderr.length > 0) {
-				log('_exec',`${bufferResult.stderr}\n`);
+				log('_exec',`${bufferResult.stderr}`);
 			}
 		}
 

@@ -1,4 +1,4 @@
-import { ThemeIcon, TreeItem, TreeItemCollapsibleState, Uri, workspace as Workspace } from 'vscode';
+import { Disposable, ThemeIcon, TreeItem, TreeItemCollapsibleState, Uri, workspace as Workspace } from 'vscode';
 import { parse as YamlParse } from 'yaml';
 import { WadTreeItem, WadTreeItemOptions } from './treeItem';
 import { basename as Basename, dirname as Dirname, join as Join } from 'path';
@@ -6,6 +6,7 @@ import { v4 } from 'uuid';
 import { ScmUtils } from './scmUtils';
 import { getIconUri, toProperCase, regExObj, camelCase } from './util';
 import { TValidScm } from './Scm';
+import { dispose } from './msutil';
 
 type DirectiveType = 'package-as' | 'externals' | 'move-folders' | 'ignore' | 'required-dependencies' | 'optional-dependencies' | 'manual-changelog' | 'license-output' | 'embedded-libraries' | 'tools-used' | 'enable-nolib-creation';
 type ArrayOfStringsDirective = 'ignore' | 'required-dependencies' | 'optional-dependencies' | 'embedded-libraries' | 'tools-used';
@@ -413,9 +414,6 @@ class ArrayOfStringsRoot extends RootBaseDirective {
   }
 }
 
-class PkgMetaFileRoot {
-
-}
 type RootDirectives = ExternalsRoot | MoveFoldersRoot | PackageAsRoot | EnableNolibCreationRoot | LicenseOutputRoot | ManualChangelogRoot | ArrayOfStringsRoot;
 
 const directivesShown = [
@@ -517,18 +515,7 @@ export class PkgmetaFile {
     });
   }
 
-  get treeItem(): WadTreeItem {
-    let wadItemTreeOptions: WadTreeItemOptions = {
-      fileType: 'pkgmeta',
-      label: this.title,
-      children: this.treeItemEntries,
-      description: this.filename,
-      uri: this.resourceUri,
-      tooltip: this.resourceUri.fsPath,
-      iconPath: getIconUri(`${/(.+-bcc)|(.+-classic)/.test(this.filename) ? 'wowc' : 'wow'}`, 'dark'),
-    };
-    return new WadTreeItem(wadItemTreeOptions);
-  }
+  treeItem: WadTreeItem
 
   get workspaceRelativePath() {
     return this.resourceUri.fsPath.replace(Workspace.getWorkspaceFolder(this.resourceUri)!.uri.fsPath, '');
@@ -563,7 +550,7 @@ export class PkgmetaFile {
     return false;
   }
 
-  async libUri() {
+  public async libUri() {
     let potentialFolders = ['/Library', '/Libs', '/Lib'];
     let idx = 0;
     let externalsFolder: string = '';
@@ -598,12 +585,35 @@ export class PkgmetaFile {
     const libUri = await this.libUri();
     const tocFile = await this.tocFile();
     this._directives = YamlParse(pkgmetaFileString, { reviver: (key, value: any) => this.yamlReviver(key, value, libUri) });
+    this.treeItem = new WadTreeItem({
+      fileType: 'pkgmeta',
+      label: this.title,
+      children: this.treeItemEntries,
+      description: this.filename,
+      uri: this.resourceUri,
+      tooltip: this.resourceUri.fsPath,
+      iconPath: getIconUri(`${/(.+-bcc)|(.+-classic)/.test(this.filename) ? 'wowc' : 'wow'}`, 'dark'),
+    })
     return true;
   }
+
+  disposables: Disposable[] = []
+  dispose(): void {
+    this.disposables = dispose(this.disposables);
+	}
 
   constructor(
     public resourceUri: Uri,
   ) {
+    this.treeItem = new WadTreeItem({
+      fileType: 'pkgmeta',
+      label: this.title,
+      children: this.treeItemEntries,
+      description: undefined,
+      uri: this.resourceUri,
+      tooltip: this.resourceUri.fsPath,
+      iconPath: getIconUri(`${/(.+-bcc)|(.+-classic)/.test(this.filename) ? 'wowc' : 'wow'}`, 'dark'),
+    })
     this.initialized = this._initialize();
   }
 }

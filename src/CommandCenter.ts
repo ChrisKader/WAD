@@ -1,5 +1,5 @@
-import * as path from 'path';
-import { commands, Disposable, extensions as Extensions, OutputChannel, window, Uri, Progress, ProgressLocation, CancellationToken, workspace as Workspace } from 'vscode';
+import {join as Join, } from 'path';
+import { commands, Disposable, extensions as Extensions, OutputChannel, window, Uri, Progress, ProgressLocation, CancellationToken, workspace as Workspace, FileSystemError } from 'vscode';
 import { WadModel } from './model';
 import { log } from './msutil';
 import { ExternalsRoot,ExternalsChild } from './pkgmetaFile';
@@ -51,8 +51,19 @@ export class CommandCenter {
   @command('wad.installExternal')
   async installExternal(e:ExternalsChild):Promise<boolean>{
     let checkoutReturn = (await (await this.scm.get(e.directiveProps.type)).checkout(e.directiveProps.url,e.directiveProps.targetUri));
-    await Workspace.fs.delete(checkoutReturn.options.targetUri,{recursive: true, useTrash: false}).then(void 0,log)
+    // Delete the .git/.svn directory.
+    await Workspace.fs.delete(Uri.joinPath(checkoutReturn.checkoutDir,`.${e.directiveProps.type}`),{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
+      log(r)
+    })
+    await Workspace.fs.delete(checkoutReturn.options.targetUri,{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
+      if(r.code !== 'FileNotFound'){
+        //We can safely ignore FileNotFound as it would mean tht the target directory did not exist and that is fine.
+        return r
+      }
+      return true
+    })
     await Workspace.fs.copy(checkoutReturn.checkoutDir,checkoutReturn.options.targetUri).then(void 0,log)
+    await Workspace.fs.delete(checkoutReturn.checkoutDir,{recursive: true, useTrash: false}).then(void 0,log)
     return true
   }
 

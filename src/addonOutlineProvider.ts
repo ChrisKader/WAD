@@ -14,6 +14,12 @@ export class AddonOutlineProvider implements TreeDataProvider<WadTreeItem> {
   private _onDidChangeTreeData = new EventEmitter<void | WadTreeItem | null | undefined>();
   readonly onDidChangeTreeData?: Event<void | WadTreeItem | null | undefined> | undefined = this._onDidChangeTreeData.event;
 
+  public removeTreeItem(treeItem: WadTreeItem){
+    const didDelete = this._treeItems.delete(treeItem.id)
+    this.refresh(treeItem)
+    return didDelete;
+  }
+
   public addTreeItems(treeItem: WadTreeItem){
     const existingTreeItem = this._treeItems.has(treeItem.id);
     this._treeItems.set(treeItem.id,treeItem);
