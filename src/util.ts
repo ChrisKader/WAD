@@ -1,6 +1,7 @@
 import { Uri, FileType, workspace as Workspace, Disposable, Event } from 'vscode';
 import { combinedDisposable, log } from './msutil';
 import * as path from 'path';
+import { dirname as Dirname } from 'path';
 
 const iconsRootPath = path.join(__dirname, '..', 'resources', 'icons');
 
@@ -136,4 +137,10 @@ export function anyEventMore<T>(...events: [Event<T>,string][]): Event<T> {
 
 		return result;
 	};
+}
+
+export function checkPath(base: Uri, dest: Uri){
+  // file:///c%3A/TESTFOLDER/TestAddon1/Addon.toc
+  // file:///c%3A/TESTFOLDER/TestAddon1/TestAddon.toc
+  return dest.toString(true).includes(Dirname(base.toString(true)))
 }

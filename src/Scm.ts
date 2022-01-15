@@ -5,7 +5,7 @@ import * as semver from 'semver';
 import * as iconv from 'iconv-lite-umd';
 import * as proc from 'process';
 import { Readable } from 'stream';
-import { CancellationToken, Progress, ProgressLocation, ProgressOptions, Uri, window, workspace as Workspace,FileSystemError, Disposable, EventEmitter, Event } from 'vscode';
+import { CancellationToken, Progress, ProgressLocation, ProgressOptions, Uri, window as Window, workspace as Workspace,FileSystemError, Disposable, EventEmitter, Event } from 'vscode';
 import { assign, dispose, IDisposable, log, onceEvent, toDisposable } from './msutil';
 import { basename as Basename, dirname as Dirname, join as Join } from 'path';
 import { StringDecoder } from 'string_decoder';
@@ -19,6 +19,7 @@ interface ISuppScm {
   folder: string;
   minVer: string;
   name: string;
+  command: string;
   scm: TValidScm;
   args: string[];
 }
@@ -52,16 +53,26 @@ export interface BufferResult {
 }
 
 interface ICheckoutOptions {
-  scmInfo: TSuppScmInfo,
-  targetUri: Uri
+  scmInfo: TSuppScmInfo;
+  targetUri: Uri;
   readonly progress: Progress<{ increment: number }>;
 }
+interface ICheckoutArgs {
+  noCloneDir?: boolean;
+  branch?: string,
+  tag?: string,
+  commit?: string,
+}
+
 type CheckoutReturn = {
   checkoutDir:Uri,
-  options:ICheckoutOptions
+  options:ICheckoutOptions,
+  args?: ICheckoutArgs
 }
+
 type TScm = {
-  checkout(repoUrl: string, targetUri: Uri): Promise<CheckoutReturn>;
+  clone(repoUrl: string, targetUri: Uri, checkoutArgs?: ICheckoutArgs): Promise<CheckoutReturn>;
+  init(targetUri: Uri): void;
 } & TSuppScmInfo;
 
 export type ScmType = {
@@ -201,7 +212,8 @@ export class Scm {
       minVer: '0.0.0',
       name: 'Git',
       scm: 'git',
-      args: ['clone', '$repoUrl$', '$repoPath$'],
+      command: 'clone',
+      args: ['$repoUrl$', '$repoPath$'],
     },
     {
       bin: 'svn',
@@ -210,7 +222,8 @@ export class Scm {
       minVer: '1.6.0',
       name: 'Svn',
       scm: 'svn',
-      args: ['checkout', '$repoUrl$', '$repoPath$', '--non-interactive']
+      command: 'checkout',
+      args: ['$repoUrl$', '$repoPath$', '--non-interactive']
     }
   ];
   disposables:Disposable[] = []
@@ -242,15 +255,25 @@ export class Scm {
       if (scmInfo) {
         resolve({
           ...scmInfo,
-          checkout: async (url: string, targetUri: Uri) => {
+          clone: async (url: string, targetUri: Uri, checkoutArgs?: ICheckoutArgs) => {
             const opt: ProgressOptions = {
               location: ProgressLocation.Notification,
               title: `Instaling requested library '${url}'...`,
               cancellable: true,
             };
 
-            return await window.withProgress(opt,
-              (progress, token) => this._checkout(url, { scmInfo, progress, targetUri }, token)
+            return await Window.withProgress(opt,
+              (progress, token) => this._clone(url, { scmInfo, progress, targetUri }, checkoutArgs,token)
+            );
+          },
+          init: async (targetUri: Uri) => {
+            const opt: ProgressOptions = {
+              location: ProgressLocation.Notification,
+              title: `Initializing project folder at '${targetUri.fsPath}'...`,
+              cancellable: true,
+            };
+            return await Window.withProgress(opt,
+              (progress, _) => this._init({scmInfo,progress,targetUri},targetUri)
             );
           }
         });
@@ -288,18 +311,53 @@ export class Scm {
     });
   };
 
-  private _checkout = async (url: string, options: ICheckoutOptions, cancellationToken?: CancellationToken):Promise<CheckoutReturn> => {
+  private _init = async (options: ICheckoutOptions,targetUri: Uri) => {
+    const onSpawn = (child: cp.ChildProcess) => {}
+    const spawnOptions: SpawnOptions = {
+      onSpawn,
+    };
+    await this.exec(options.scmInfo, targetUri.fsPath, ['init'], spawnOptions);
+  }
+
+  private _clone = async (url: string, options: ICheckoutOptions, checkoutArgs?: ICheckoutArgs, cancellationToken?: CancellationToken):Promise<CheckoutReturn> => {
     let folderName = Basename(options.targetUri.fsPath);
-    let parentDir = options.targetUri.fsPath.replace(folderName,'.clone');
+    let parentDir = checkoutArgs?.noCloneDir ? options.targetUri.fsPath : options.targetUri.fsPath.replace(folderName,'.clone');
 
-    let checkoutDir = Join(parentDir, folderName);
-    await Workspace.fs.delete(Uri.file(parentDir),{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
-      log('ERROR','_checkout',r);
-    });
+    let checkoutDir = checkoutArgs?.noCloneDir ? options.targetUri.fsPath : Join(parentDir, folderName);
+    if(!checkoutArgs?.noCloneDir){
+      await Workspace.fs.delete(Uri.file(parentDir),{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
+        if(r.code !== 'EntryNotFound'){
+          log('ERROR','_clone',r);
+        }
+      });
+      await Workspace.fs.createDirectory(Uri.file(parentDir));
+    }
+    let args = [options.scmInfo.command]
 
-    await Workspace.fs.createDirectory(Uri.file(parentDir));
+    if(checkoutArgs){
+      if(options.scmInfo.scm === 'git'){
+        if(checkoutArgs.branch || checkoutArgs.tag){
+          const branch = checkoutArgs.branch || checkoutArgs.tag
+          args.push('-b',branch!)
+        }
+      }
 
-    const args = options.scmInfo.args.map(v => v === '$repoUrl$' ? url : v === '$repoPath$' ? checkoutDir : v);
+      if(options.scmInfo.scm === 'svn'){
+        if(checkoutArgs.tag){
+          url = `${url}/tags/${checkoutArgs.tag}`
+        }
+      }
+    }
+
+    options.scmInfo.args.map(v => {
+      if(v === '$repoUrl$'){
+        args.push(url)
+      } else if(v === '$repoPath$'){
+        args.push(checkoutDir)
+      } else {
+        args.push(v)
+      }
+    })
 
     const onSpawn = (child: cp.ChildProcess) => {
       const decoder = new StringDecoder('utf8');

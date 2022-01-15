@@ -28,6 +28,11 @@
     ],
     "commands": [
       {
+        "command": "wad.setuptempate",
+        "title": "Create a WoW Addon Project from a template.",
+        "icon": "$(tools)"
+      },
+      {
         "command": "wad.refreshPkgMetaFiles",
         "title": "Refresk Pkg Meta Tree",
         "icon": "$(refresh)"
