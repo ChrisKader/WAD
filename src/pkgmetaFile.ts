@@ -21,7 +21,7 @@ interface EnableNoLibOpt {
   status: string
 }
 
-interface ExtDirChildOpt {
+export interface ExtDirChildOpt {
   targetUri: Uri,
   targetDir: string;
   url: string;

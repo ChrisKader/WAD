@@ -1,9 +1,9 @@
-import {dirname, join as Join, } from 'path';
+import {basename, dirname, join as Join, } from 'path';
 import * as os from 'os';
 import { commands, Disposable, extensions as Extensions, OutputChannel, window as Window, Uri, Progress, ProgressLocation, CancellationToken, workspace as Workspace, FileSystemError, window } from 'vscode';
 import { WadModel } from './model';
 import { log } from './msutil';
-import { ExternalsRoot,ExternalsChild } from './pkgmetaFile';
+import { ExternalsRoot,ExternalsChild, ExtDirChildOpt } from './pkgmetaFile';
 import { Scm } from './Scm';
 
 interface ITemplateOptions {
@@ -60,22 +60,35 @@ export class CommandCenter {
   }
 
   @command('wad.installExternal')
-  async installExternal(e:ExternalsChild):Promise<boolean>{
-    let checkoutReturn = (await (await this.scm.get(e.directiveProps.type)).clone(e.directiveProps.url,e.directiveProps.targetUri,{branch: e.directiveProps.branch,commit:e.directiveProps.commit,tag: e.directiveProps.tag}));
-    // Delete the .git/.svn directory.
-    await Workspace.fs.delete(Uri.joinPath(checkoutReturn.checkoutDir,`.${e.directiveProps.type}`),{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
-      log(r)
-    })
-    await Workspace.fs.delete(checkoutReturn.options.targetUri,{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
-      if(r.code !== 'FileNotFound'){
-        //We can safely ignore FileNotFound as it would mean tht the target directory did not exist and that is fine.
-        return r
+  async installExternal(e:ExternalsChild):Promise<{external:ExtDirChildOpt,success:boolean}>{
+    const returnObj = {
+      external: e.directiveProps,
+      success: false
+    }
+    return new Promise(async (res,rej)=>{
+      let checkoutReturn = await this.model.neededScms[e.directiveProps.type].clone(e.directiveProps.url,e.directiveProps.targetUri,{branch: e.directiveProps.branch,commit:e.directiveProps.commit,tag: e.directiveProps.tag}).catch((r)=>{
+        rej(returnObj);
+        log(`Unsuccessful checkout of library ${e.directiveProps.url} ${r}`)
+      })
+      if(!checkoutReturn || !checkoutReturn.checkoutDir){
+        log(`Unsuccessful checkout of library ${e.directiveProps.url}`);
+        rej(returnObj)
       }
-      return true
+      // Delete the .git/.svn directory.
+      await Workspace.fs.delete(Uri.joinPath(checkoutReturn!.checkoutDir,`.${e.directiveProps.type}`),{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
+        log(r)
+      })
+      await Workspace.fs.delete(checkoutReturn!.options.targetUri,{recursive: true, useTrash: false}).then(void 0,(r:FileSystemError)=>{
+        if(r.code !== 'FileNotFound'){
+          //We can safely ignore FileNotFound as it would mean tht the target directory did not exist and that is fine.
+          return r
+        }
+      })
+      await Workspace.fs.copy(checkoutReturn!.checkoutDir,checkoutReturn!.options.targetUri).then(void 0,log)
+      await Workspace.fs.delete(checkoutReturn!.checkoutDir,{recursive: true, useTrash: false}).then(void 0,log)
+      returnObj.success = true
+      res(returnObj);
     })
-    await Workspace.fs.copy(checkoutReturn.checkoutDir,checkoutReturn.options.targetUri).then(void 0,log)
-    await Workspace.fs.delete(checkoutReturn.checkoutDir,{recursive: true, useTrash: false}).then(void 0,log)
-    return true
   }
 
 	@command('wad.updateFileDecoration')
@@ -93,126 +106,289 @@ export class CommandCenter {
 
   @command('wad.setuptempate')
   private async setupTemplate(){
-    const defaultTemplateUrl = 'https://github.com/ChrisKader/wow-addon-template'
 
-    const projectName = await Window.showInputBox({
+    const defaultTemplateUrl = 'https://github.com/ChrisKader/wow-addon-template/'
+
+    // Begin information gathering.
+
+    // Determine the location of the addons base folder.
+    // TODO: Save fist time selected value to config for later use.
+
+    const extConfig = Workspace.getConfiguration('wad')
+    const defaultParentDir =  Uri.file(extConfig.get('defaultParentDir',os.homedir()))
+    const addonParentDir = await Window.showOpenDialog({
+
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri: defaultParentDir,
+      openLabel:"Initialize Project Directory"
+    }).then(v => v ? v[0] : undefined)
+
+    if(!addonParentDir){
+      return
+    }
+
+    extConfig.update('defaultParentDir',addonParentDir.fsPath,true);
+
+    const addonName = await Window.showInputBox({
       ignoreFocusOut: true,
       placeHolder: 'Example: NewWoWAddon',
       title:'Addon Name',
       prompt: 'This will be used for the folder and TOC file name. Its recommended to avoid the use of special characters and spaces.',
-    })
+    });
 
-    if(!projectName || projectName.length === 0){
-      return
+
+    if(!addonName || addonName.length === 0){
+      // No addon name provided or cancelled.
+      Window.showErrorMessage(`Addon name not provided or invalid.`);
+      return;
     }
 
-    const initLocationArray = await Window.showOpenDialog({
-      canSelectFiles: false,
-      canSelectFolders: true,
-      canSelectMany: false,
-      defaultUri: Uri.file(os.homedir()),
-      openLabel:"Initialize Project Directory"
-    })
+    let addonBaseDir = Uri.joinPath(addonParentDir,addonName)
+    const addonFolderExists = typeof(await Workspace.fs.stat(addonBaseDir).then(v => v.type,()=>undefined)) !== 'undefined'
 
-    if(!initLocationArray || initLocationArray.length === 0){
-      return
+    // Check if folder already exists.
+    if(addonFolderExists){
+      Window.showErrorMessage(`Folder with the name ${addonName} already exists in ${addonParentDir.toString(true)}.`);
+      return;
     }
 
-    const initLocation = initLocationArray[0]
+    // get the predefined library list.
+    const libraryList = await this.model.getLibraryList()
+    let librariesToInstall:{label: string; description: string; index: number; }[] | undefined = []
 
-    const cloneDirUri = await Workspace.fs.createDirectory(initLocation).then(()=>{
-      const cloneDir = Uri.joinPath(initLocation,projectName)
-      return Workspace.fs.createDirectory(cloneDir).then(()=>{
-        return cloneDir
-      },(r)=>{
-        window.showErrorMessage(`Error when creating clone directory for ${projectName} in ${cloneDir.fsPath}: ${r.code} ${r.message}`)
-        return false
+    // if the predefined list has entries then show a quick pick.
+    // TODO: Allow for adding libraries not in the list.
+    if(libraryList.length > 0){
+      librariesToInstall = await Window.showQuickPick(libraryList.map((v,i) => {
+        return {
+          label: v.name,
+          description: `${v.tag ? '$(tag) ' + v.tag  : v.version} ${v.url}`,
+          index: i
+        }
+      }),{canPickMany: true})
+    }
+
+    // default library folder is Libs
+    let libraryFolderName:string = 'Libs'
+
+    // If the user selected any libraries to install, ask for the library folder name they would like. Default to Libs if nothing provided.
+    if(librariesToInstall && librariesToInstall.length > 0){
+      const pickedLibraryFolderName = await Window.showInputBox({
+        value: libraryFolderName,
+        ignoreFocusOut: true,
+        placeHolder: 'Default: Libs',
+        title: 'Library Folder Name',
+        prompt: 'This folder will be used as the parent directory for any libraries previously selected.',
+      });
+
+      if(!libraryFolderName){
+        Window.showErrorMessage(`Library folder name not provided or invalid.`);
+        return;
+      }
+
+      libraryFolderName = pickedLibraryFolderName || libraryFolderName;
+    }
+
+    const progressWindow = Window.withProgress({
+      location: ProgressLocation.Notification,
+      title: `Creating ${addonName}`,
+      cancellable: true,
+    },(progress,cancelToken)=>{
+      return new Promise(async (res,rej)=> {
+        const totalBaseSteps = 10
+
+        let totalSteps = totalBaseSteps + (librariesToInstall?.length || 0)
+
+        let progInfo = this.updateProgress({
+          progress,
+          currentProgress: 0,
+          currentStep: 0,
+          totalSteps:totalSteps,
+        },`Creating ${addonName} folder.`)
+
+        // check for our addonBaseDir agian, just in case.
+        await Workspace.fs.stat(addonBaseDir).then(v=>{
+          if(v){
+            rej(`Project Directory already exists at ${addonBaseDir.toString(true)}`)
+          }
+        },(r)=>{
+          log(`${addonBaseDir.toString(true)} does not exist. Continuing`)
+        })
+
+        // Step 1: Create Addon Base Directory
+        addonBaseDir = await Workspace.fs.createDirectory(addonBaseDir).then(()=>{
+          return addonBaseDir
+        },(r:FileSystemError)=>{
+          if(r.code === 'FileExists'){
+            rej(`A folder with the name ${addonName} already exists in ${addonParentDir.toString(true)}`)
+          } else {
+            rej(`Error created ${addonName} in ${addonParentDir.toString(true)}: ${r.code} ${r.message}`)
+          }
+        })
+
+        if(!addonBaseDir){
+          rej(`Unable to determine clone directory.`)
+        }
+
+        progInfo = this.updateProgress(progInfo,`Cloning addon template from Github.`)
+        //Step 2: Clone template into addon base directory.
+        const templateCloneResults = await this.model.neededScms.git.clone(defaultTemplateUrl,addonBaseDir,{branch: 'default',noProgress: true,noCloneDir: true})
+        if(!templateCloneResults.checkoutDir){
+          rej(`Unsuccessful template checkout ${templateCloneResults}`)
+        }
+
+        progInfo = this.updateProgress(progInfo,`Parsing .templateoptions file`)
+        const tempOptsUri = Uri.joinPath(templateCloneResults.checkoutDir,'.templateoptions')
+        const templateOptionsStr = (await Workspace.fs.readFile(tempOptsUri)).toString()
+
+        //Step 3: Check for and parse .templateoptions file.
+        // Ensure .templateoptions is preset.
+        if(!templateOptionsStr || templateOptionsStr.length === 0){
+          rej(`Unable to find .templateoptions in ${templateCloneResults.checkoutDir.toString(true)}`)
+        }
+
+        // Parse .templateoptions file into an object then delete the file.
+        const templateOptions = JSON.parse(templateOptionsStr) as ITemplateOptions
+
+        await Workspace.fs.delete(tempOptsUri,{recursive: false, useTrash: true}).then(()=>{},(r)=>{})
+        progInfo = this.updateProgress(progInfo,`Rename the default subfolder.`)
+        // Step 4: Rename the default subfolder.
+        // Rename template sub-folder to the project name using templateOptions to get the default folder name.
+        await Workspace.fs.rename(Uri.joinPath(templateCloneResults.checkoutDir,templateOptions.subFolderName),Uri.joinPath(templateCloneResults.checkoutDir,addonName)).then(void 0,(r)=>{
+          log('ERROR',r)
+          rej(`Unable to rename ${templateOptions.subFolderName} in ${templateCloneResults.checkoutDir.toString(true)}`)
+        })
+
+        const replaceRegExStr = `${templateOptions.replacementText}`
+
+        progInfo = this.updateProgress(progInfo,`Replacing template text.`)
+        //Step 5: Replace any text.
+        if(templateOptions.filesTo.replaceText){
+          for await (const f of templateOptions.filesTo.replaceText) {
+            const repRegEx = new RegExp(replaceRegExStr,'gm')
+            const filename = f.replace(repRegEx,addonName);
+            const UriToRead = Uri.joinPath(templateCloneResults.checkoutDir,filename);
+            progInfo = this.updateProgress(progInfo,`Replacing template text in ${filename}`,true)
+            log(`Reading ${UriToRead.toString(true)}....`)
+            const textToWrite = (await Workspace.fs.readFile(UriToRead)).toString().replace(repRegEx, addonName)
+            await Workspace.fs.writeFile(UriToRead,Buffer.from(textToWrite)).then(()=>{
+              log(`${UriToRead.toString(true)} write success`)
+            },(r)=>{
+              log(`${UriToRead.toString(true)} write failed`,r)
+              rej( `${UriToRead.toString(true)} write failed ${r}`)
+            })
+          }
+        }
+
+        progInfo = this.updateProgress(progInfo,`Renaming files`)
+        //Step 6: Rename files.
+        if(templateOptions.filesTo.rename){
+          for await (const fileInfo of templateOptions.filesTo.rename) {
+            const repRegEx = new RegExp(replaceRegExStr,'gm')
+            const oldFilenameUri = Uri.joinPath(addonBaseDir,fileInfo[0].replace(repRegEx,addonName))
+            const newFilenameUri = Uri.joinPath(addonBaseDir,fileInfo[1].replace(repRegEx,addonName))
+            progInfo = this.updateProgress(progInfo,`${basename(oldFilenameUri.fsPath)} to ${basename(newFilenameUri.fsPath)}`,true)
+            await Workspace.fs.rename(oldFilenameUri,newFilenameUri,{overwrite: true}).then(()=>{
+              log(`Rename From ${oldFilenameUri.toString(true)} to ${newFilenameUri.toString(true)} successful`)
+            },(r:FileSystemError)=>{
+              if(r.message !== 'FileNotFound'){
+                rej(`Error renaming ${oldFilenameUri.toString(true)} to ${newFilenameUri.toString(true)}`)
+              }
+            });
+          }
+        }
+
+        progInfo = this.updateProgress(progInfo,`Deleting files`)
+        //Step 7: Delete files.
+        if(templateOptions.filesTo.delete){
+          for await (const fileInfo of templateOptions.filesTo.delete) {
+            const uriToDelete = Uri.joinPath(addonBaseDir,fileInfo)
+            progInfo = this.updateProgress(progInfo,`Deleting ${fileInfo}`,true)
+            await Workspace.fs.delete(Uri.joinPath(addonBaseDir,fileInfo),{recursive: true,useTrash: false}).then(void 0,(r:FileSystemError)=>{
+              if(r.message !== 'FileNotFound'){
+                rej(`Error deleting ${uriToDelete.toString(true)}`)
+              }
+            });
+          }
+        }
+
+        progInfo = this.updateProgress(progInfo,`Deleting source control folder.`)
+        //Step 8: Delete the source control folder.
+        const scmFolderUri = Uri.joinPath(addonBaseDir,`.${templateCloneResults.options.scmInfo.scm}`)
+        await Workspace.fs.delete(scmFolderUri,{recursive: true,useTrash: false}).then(void 0,(r:FileSystemError)=>{
+          if(r.message !== 'FileNotFound'){
+            rej(`Error deleting SCM folder at ${scmFolderUri}`)
+          }
+        });
+
+        progInfo = this.updateProgress(progInfo,`Installing Externals`)
+        //Step: 9: Install any libraries.
+        if(librariesToInstall && librariesToInstall.length > 0){
+          // Build base library folder Uri based on selections made.
+          const libFolderBaseUri = Uri.joinPath(addonBaseDir,addonName,libraryFolderName)
+          const libFolderPath = addonName + "/" + libraryFolderName
+          const externalsInfo:string[] = ['externals:']
+          // Delete the folder if it exists (though it shouldnt.)
+          await Workspace.fs.delete(libFolderBaseUri).then(void 0,(r)=>{});
+          let currIdx = 1
+          // Loop through libraries selected.
+          for await (const libraryToInstall of librariesToInstall) {
+            progInfo = this.updateProgress(progInfo,`Installing External: ${libraryToInstall.label} (${currIdx}/${librariesToInstall.length})`)
+            // get info for selected library.
+            const currentLibraryInfo = libraryList[libraryToInstall.index];
+            // build uri for current library.
+            const currentLibraryUri = Uri.joinPath(libFolderBaseUri,currentLibraryInfo.folder)
+            const currentLibFolderPath = libFolderPath + "/" + currentLibraryInfo.folder
+            // delete the folder if it exists.
+            await Workspace.fs.delete(currentLibraryUri).then(void 0,(r)=>{});
+            // create directory for current library
+            const libCloneDirUri = await Workspace.fs.createDirectory(currentLibraryUri).then(()=>{
+              return currentLibraryUri
+            },(r:FileSystemError)=>{
+              rej(`Error when creating library folder ${currentLibraryInfo.folder} in ${currentLibraryUri.toString(true)}: ${r.code} ${r.message}`)
+            })
+
+            const currentLibraryCloneResults = await this.model.neededScms[currentLibraryInfo.scm].clone(currentLibraryInfo.url,libCloneDirUri,{noProgress: true,noCloneDir: true}).catch((r)=>{
+              rej(`Unsuccessful checkout of library ${currentLibraryInfo} ${currentLibraryCloneResults}`);
+            })
+
+            if(!currentLibraryCloneResults || !currentLibraryCloneResults.checkoutDir){
+              rej(`Unsuccessful checkout of library ${currentLibraryInfo} ${currentLibraryCloneResults}`);
+            }
+            externalsInfo.push(`  ${currentLibFolderPath}: ${currentLibraryInfo.url}`)
+            currIdx++
+          }
+          const pkgMetaPath = Uri.joinPath(addonBaseDir,'\/.pkgmeta')
+          const currentPkgMetaString = (await Workspace.fs.readFile(pkgMetaPath)).toString()
+          const newPkgMetaString = currentPkgMetaString + externalsInfo.join('\n')
+          await Workspace.fs.writeFile(pkgMetaPath,Buffer.from(newPkgMetaString))
+        }
+
+        //Step 10: Init addon folder.
+        progInfo = this.updateProgress(progInfo,`Git Initializing ${addonName}`);
+        await this.model.neededScms.git.init(addonBaseDir)
+        commands.executeCommand('vscode.openFolder', addonBaseDir, { forceNewWindow: true })
+        res(addonBaseDir)
+      }).catch(async (r)=>{
+        Window.showErrorMessage(r)
+        await Workspace.fs.delete(addonBaseDir,{useTrash: false, recursive: true})
+        return;
       })
-    },(r:FileSystemError)=>{
-      if(r.code === 'FileExists'){
-        window.showErrorMessage(`A folder with the name ${projectName} already exists in ${initLocation.fsPath}`)
-      } else {
-        window.showErrorMessage(`Error created ${projectName} in ${initLocation.fsPath}: ${r.code} ${r.message}`)
-      }
-      return false
     })
-    if(!cloneDirUri){
-      return;
-    }
-
-    const successfulCloneOptions = await (await this.scm.get('git')).clone(defaultTemplateUrl,cloneDirUri,{branch: 'default',noCloneDir: true})
-
-    try {
-      const templateOptions = (await Workspace.fs.readFile(Uri.joinPath(successfulCloneOptions.checkoutDir,'.templateoptions'))).toString()
-
-      if(!templateOptions || templateOptions.length === 0){
-        throw `Unable to find .templateoptions in ${successfulCloneOptions.checkoutDir.toString(true)}`
-      }
-      const templateOptionsObj = JSON.parse(templateOptions) as ITemplateOptions
-      await Workspace.fs.rename(Uri.joinPath(successfulCloneOptions.checkoutDir,templateOptionsObj.subFolderName),Uri.joinPath(successfulCloneOptions.checkoutDir,projectName)).then(void 0,(r)=>{
-        log('ERROR',r)
-        throw `Unable to rename ${templateOptionsObj.subFolderName} in ${successfulCloneOptions.checkoutDir.toString(true)}`
-      });
-      const replaceRegExStr = `${templateOptionsObj.replacementText}`
-
-      if(templateOptionsObj.filesTo.replaceText){
-        for await (const f of templateOptionsObj.filesTo.replaceText) {
-          const repRegEx = new RegExp(replaceRegExStr,'gm')
-          const filename = f.replace(repRegEx,projectName);
-          const UriToRead = Uri.joinPath(successfulCloneOptions.checkoutDir,filename);
-          log(`Reading ${UriToRead.toString(true)}....`)
-          const textToWrite = (await Workspace.fs.readFile(UriToRead)).toString().replace(repRegEx, projectName)
-          await Workspace.fs.writeFile(UriToRead,Buffer.from(textToWrite)).then(()=>{
-            log(`${UriToRead.toString(true)} write success`)
-          },(r)=>{
-            log(`${UriToRead.toString(true)} write failed`,r)
-            throw `${UriToRead.toString(true)} write failed ${r}`
-          })
-        }
-      }
-
-      if(templateOptionsObj.filesTo.rename){
-        for await (const fileInfo of templateOptionsObj.filesTo.rename) {
-          const repRegEx = new RegExp(replaceRegExStr,'gm')
-          const oldFilenameUri = Uri.joinPath(cloneDirUri,fileInfo[0].replace(repRegEx,projectName))
-          const newFilenameUri = Uri.joinPath(cloneDirUri,fileInfo[1].replace(repRegEx,projectName))
-          await Workspace.fs.rename(oldFilenameUri,newFilenameUri,{overwrite: true}).then(()=>{
-            log(`Rename From ${oldFilenameUri.toString(true)} to ${newFilenameUri.toString(true)} successful`)
-          },(r:FileSystemError)=>{
-            if(r.message !== 'FileNotFound'){
-              throw `Error renaming ${oldFilenameUri.toString(true)} to ${newFilenameUri.toString(true)}`
-            }
-          });
-        }
-      }
-
-      if(templateOptionsObj.filesTo.delete){
-        for await (const fileInfo of templateOptionsObj.filesTo.delete) {
-          const uriToDelete = Uri.joinPath(cloneDirUri,fileInfo)
-          await Workspace.fs.delete(Uri.joinPath(cloneDirUri,fileInfo),{recursive: true,useTrash: false}).then(void 0,(r:FileSystemError)=>{
-            if(r.message !== 'FileNotFound'){
-              throw `Error deleting ${uriToDelete.toString(true)}`
-            }
-          });
-        }
-      }
-
-      const scmFolderUri = Uri.joinPath(cloneDirUri,`.${successfulCloneOptions.options.scmInfo.scm}`)
-      await Workspace.fs.delete(scmFolderUri,{recursive: true,useTrash: false}).then(void 0,(r:FileSystemError)=>{
-        if(r.message !== 'FileNotFound'){
-          throw `Error deleting SCM folder at ${scmFolderUri}`
-        }
-      });
-      (await this.scm.get('git')).init(cloneDirUri)
-      commands.executeCommand('vscode.openFolder', cloneDirUri, { forceNewWindow: true })
-    } catch (err: any) {
-      Window.showErrorMessage(err)
-      await Workspace.fs.delete(successfulCloneOptions.checkoutDir,{useTrash: false, recursive: true})
-      return;
-    }
   }
 
-	dispose(): void {
+  updateProgress = (opt: {progress:Progress<{ increment: number; message?:string }>, currentProgress: number, currentStep: number, totalSteps: number},message:string,noProg?:boolean) =>{
+    const stepValue = 100 / opt.totalSteps
+    opt.currentStep = opt.currentStep + (noProg ? 0 : 1)
+    const newProgress = Math.floor(opt.currentStep * stepValue) <= 100 ? Math.floor(opt.currentStep * stepValue) : 100;
+    opt.progress.report({ increment: newProgress - opt.currentProgress, message:`${message} ${newProgress}%`});
+    opt.currentProgress = newProgress;
+    return opt;
+  }
+
+  dispose(): void {
 		this.disposables.forEach(d => d.dispose());
 	}
 }

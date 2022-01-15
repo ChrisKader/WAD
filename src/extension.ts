@@ -5,18 +5,30 @@ import { Scm } from './Scm';
 export async function activate(context: ExtensionContext) {
   context.globalState.update('status','activate');
   if(!Workspace.workspaceFolders){
-    Window.showWarningMessage('WoW Addon Dev: No workspace currently active.')
     context.globalState.update('status','noWorkspace');
   }
   const scm = new Scm();
-  const model = new WadModel(context, scm);
-  const commandCenter = new CommandCenter(model, scm)
-  context.subscriptions.push(
-    scm,
-    model,
-    commandCenter
-  );
-  context.subscriptions.push(model);
+  await scm.get('svn').then((svn)=>{
+    scm.get('git').then(git => {
+      const model = new WadModel(context,{scm: scm, git, svn})
+      const commandCenter = new CommandCenter(model, scm)
+      context.subscriptions.push(
+        scm,
+        model,
+        commandCenter
+      );
+      context.subscriptions.push(model);
+
+    },(gitReject)=>{
+      return gitReject
+    }).catch(r=>{
+      Window.showErrorMessage(`Did not find good Git install. ${r}`)
+    })
+  },(svnReject)=>{
+    return svnReject
+  }).catch(r=>{
+    Window.showErrorMessage(`Did not find good SVN install. ${r}`)
+  })
 }
 
 // this method is called when your extension is deactivated

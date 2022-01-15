@@ -55,13 +55,14 @@ export interface BufferResult {
 interface ICheckoutOptions {
   scmInfo: TSuppScmInfo;
   targetUri: Uri;
-  readonly progress: Progress<{ increment: number }>;
+  readonly progress?: Progress<{ increment: number }>;
 }
 interface ICheckoutArgs {
+  noProgress?: boolean;
   noCloneDir?: boolean;
-  branch?: string,
-  tag?: string,
-  commit?: string,
+  branch?: string;
+  tag?: string;
+  commit?: string;
 }
 
 type CheckoutReturn = {
@@ -70,7 +71,7 @@ type CheckoutReturn = {
   args?: ICheckoutArgs
 }
 
-type TScm = {
+export type TScm = {
   clone(repoUrl: string, targetUri: Uri, checkoutArgs?: ICheckoutArgs): Promise<CheckoutReturn>;
   init(targetUri: Uri): void;
 } & TSuppScmInfo;
@@ -261,10 +262,13 @@ export class Scm {
               title: `Instaling requested library '${url}'...`,
               cancellable: true,
             };
-
-            return await Window.withProgress(opt,
-              (progress, token) => this._clone(url, { scmInfo, progress, targetUri }, checkoutArgs,token)
-            );
+            if(checkoutArgs?.noProgress){
+              return this._clone(url, { scmInfo, targetUri }, checkoutArgs)
+            } else {
+              return await Window.withProgress(opt,
+                (progress, token) => this._clone(url, { scmInfo, progress, targetUri }, checkoutArgs,token)
+              );
+            }
           },
           init: async (targetUri: Uri) => {
             const opt: ProgressOptions = {
@@ -381,7 +385,7 @@ export class Scm {
           totalProgress = 60 + Math.floor(parseInt(match[1]) * 0.4);
         }
 
-        if (totalProgress !== previousProgress) {
+        if (totalProgress !== previousProgress && options.progress) {
           options.progress.report({ increment: totalProgress - previousProgress });
           previousProgress = totalProgress;
         }

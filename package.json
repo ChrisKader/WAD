@@ -22,6 +22,11 @@
             "type": "string",
             "default": "/Libs",
             "description": "Path of the folder used for embedded libraries.\nNote: This path resolved relative to an addons TOC file."
+          },
+          "wad.defaultParentDir": {
+            "type": "string",
+            "default": "",
+            "description": "Predefined to place new addons by WoW Addon Developer Tools templates."
           }
         }
       }
@@ -74,7 +79,8 @@
       "explorer": [
         {
           "id": "wadTreeView",
-          "name": "WoW Addon Dev"
+          "name": "WoW Addon Dev",
+          "when": "wad.state == initialized"
         }
       ]
     },
@@ -82,7 +88,7 @@
       {
         "view": "explorer",
         "contents": "In order to use WoW Addon Tool's features, you can open a folder containing a TOC file or create an addon from a template.\n[Open Folder](command:vscode.openFolder)\n[Create Addon Project](command:wad.setuptempate)\n",
-        "when": "workbenchState == empty"
+        "enablement": "wad.state == initialized"
       }
     ]
   },
