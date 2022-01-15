@@ -77,7 +77,14 @@
           "name": "WoW Addon Dev"
         }
       ]
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "explorer",
+        "contents": "In order to use WoW Addon Tool's features, you can open a folder containing a TOC file or create an addon from a template.\n[Open Folder](command:vscode.openFolder)\n[Create Addon Project](command:wad.setuptempate)\n",
+        "when": "workbenchState == empty"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "yarn run package",
