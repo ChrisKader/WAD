@@ -8,8 +8,8 @@ export async function activate(context: ExtensionContext) {
     Window.showWarningMessage('WoW Addon Dev: No workspace currently active.')
     context.globalState.update('status','noWorkspace');
   }
-  const model = new WadModel(context);
   const scm = new Scm();
+  const model = new WadModel(context, scm);
   const commandCenter = new CommandCenter(model, scm)
   context.subscriptions.push(
     scm,

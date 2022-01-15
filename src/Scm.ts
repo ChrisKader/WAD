@@ -5,7 +5,7 @@ import * as semver from 'semver';
 import * as iconv from 'iconv-lite-umd';
 import * as proc from 'process';
 import { Readable } from 'stream';
-import { CancellationToken, Progress, ProgressLocation, ProgressOptions, Uri, window, workspace as Workspace,FileSystemError, Disposable } from 'vscode';
+import { CancellationToken, Progress, ProgressLocation, ProgressOptions, Uri, window, workspace as Workspace,FileSystemError, Disposable, EventEmitter, Event } from 'vscode';
 import { assign, dispose, IDisposable, log, onceEvent, toDisposable } from './msutil';
 import { basename as Basename, dirname as Dirname, join as Join } from 'path';
 import { StringDecoder } from 'string_decoder';
@@ -190,6 +190,9 @@ function sanitizePath(path: string): string {
 }
 
 export class Scm {
+  private _onCheckedOutDir = new EventEmitter<Uri>();
+  readonly onCheckedOutDir: Event<Uri> = this._onCheckedOutDir.event;
+
   public readonly supported: ISuppScm[] = [
     {
       bin: 'git',
@@ -345,13 +348,14 @@ export class Scm {
         throw err;
       }
     }
+    this._onCheckedOutDir.fire(Uri.file(checkoutDir))
     return {
       checkoutDir: Uri.file(checkoutDir),
       options
     };
   };
 
-  private exec = async (scm: TSuppScmInfo, cwd: string, args: string[], options: SpawnOptions = {}):Promise<IExecutionResult<string>> => {
+  private exec = async (scm: TSuppScmInfo, cwd: string, args: string[], options: SpawnOptions = {}):Promise<IExecutionResult<string> | ScmError> => {
     options = assign({ cwd }, options || {});
 		return await this._exec(scm, args, options);
   };
@@ -409,7 +413,7 @@ export class Scm {
 		};
 
 		if (bufferResult.exitCode) {
-			return Promise.reject<IExecutionResult<string>>(new ScmError({
+			return Promise.reject(new ScmError({
         scm,
 				message: `Failed to execute ${scm.path}`,
 				stdout: result.stdout,

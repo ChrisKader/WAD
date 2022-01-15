@@ -19,6 +19,7 @@ export class WadModel {
   private _onDidUpdateTrackedFile = new EventEmitter<Uri>();
   readonly onDidUpdateTrackedFile: Event<Uri> = this._onDidUpdateTrackedFile.event;
 
+  private _onInstalledLibrary = new EventEmitter<Uri>();
   private _addonOutlineProvider: AddonOutlineProvider = new AddonOutlineProvider();
   private _notificationProvider: WadNotifcationProvider = new WadNotifcationProvider();
   private _addonOutlineTreeView = Window.createTreeView('wadTreeView', { treeDataProvider: this._addonOutlineProvider });
@@ -26,13 +27,11 @@ export class WadModel {
   private disposables: Disposable[] = [];
 
   trackedFiles: Map<string, TrackedFile> = new Map();
+  installedLibraryFolders: Map<string, Uri> = new Map();
   ignoredFolders = [
     '.svn',
     '.git',
     '.clone',
-    '/Libs/',
-    '/Library/',
-    '/Libraries/'
   ]
 
   private deleteTrackedFile(uri: Uri) {
@@ -68,11 +67,12 @@ export class WadModel {
       if (/pkgmeta/.test(uriString)) {
         fileToAdd = new PkgmetaFile(uri);
         await fileToAdd.initialized;
+        this.updateTrackedFiles(uri,fileToAdd);
       } else if (/.+\.toc/.test(uriString)) {
         fileToAdd = new TocFile(uri);
         await fileToAdd.initialized;
+        this.updateTrackedFiles(uri,fileToAdd);
       }
-      this.updateTrackedFiles(uri,fileToAdd);
     }
   }
 
@@ -84,8 +84,10 @@ export class WadModel {
   }
 
   private scanFolderForFiles = async (uri:Uri) => {
-    log(uri);
-    (await Workspace.findFiles(new RelativePattern(uri,'**/{*.toc,.pkgmeta*,pkgmeta*.yaml,pkgmeta*.yml}'))).filter(f=>this.checkIgnoredList(f))
+    (await Workspace.findFiles(new RelativePattern(uri,'**/{*.toc,.pkgmeta*,pkgmeta*.y*ml}')))
+    .filter(f=>this.checkIgnoredList(f))
+    // Only include files no deeper than 2 levels from the root of its wortkspace folder.
+    .filter((uri)=> uri.toString(true).replace(Workspace.getWorkspaceFolder(uri)!.uri.toString(true),'').split('/').length <= 3)
     .map(f => this.watchedFileUpdated(f))
   }
 
@@ -100,7 +102,7 @@ export class WadModel {
     }))
 
     workspaceFoldersToAdd.map(f => {
-      this.checkoutDirs.set(f.uri.toString(true), Uri.joinPath(f.uri, '.release', '.checkout'))
+      this.checkoutDirs.set(f.uri.toString(true), Uri.joinPath(f.uri, '\.release', '\.checkout'))
       this.scanFolderForFiles(f.uri)
     })
   }
@@ -113,12 +115,17 @@ export class WadModel {
 
   }
 
+  private onCheckedOutDir = (uri: Uri): void => {
+    log(uri)
+  }
+
   private checkIfInWorkspace = (uri: Uri) => {
     return typeof(Workspace.getWorkspaceFolder(uri)) !== 'undefined'
   }
 
   private checkFileTrackingEligibility(uri: Uri) {
-    return /(?:^(?:(?:\.(?!.+\.(?:(yaml)|(?:yml))$))|(?:^(?=[^\.]+\.(?:(yaml)|(?:yml))$)))(?<pkg>pkgmeta(?:-(?:(?:bcc)|(?:mainline)|(?:classic)))?(?:\.(?:(yaml)|(?:yml)))?)$)|(?:(?<toc>.+\.toc)$)/i.test(Basename(uri.toString(true)))
+    // https://regex101.com/r/lf1YAB/
+    return /^\.(?!.+\.ya?ml$)|^(?=[^.]+\.ya?ml$)pkgmeta(?:[_-](?:tbc|bcc|classic|vanilla))?(?:\.ya?ml)?$|^.+\.toc$/i.test(Basename(uri.toString(true)))
   }
 
   private checkForTrackedFolder = (uri: Uri) => {
@@ -130,11 +137,13 @@ export class WadModel {
 
   initialized: boolean = false
   constructor(
-    public context: ExtensionContext
+    public context: ExtensionContext,
+    public scm: Scm
   ) {
     Workspace.onDidChangeWorkspaceFolders(this.onDidChangeWorkspaceFolders, this, this.disposables)
     Window.onDidChangeVisibleTextEditors(this.onDidChangeVisibleTextEditors, this, this.disposables);
     Workspace.onDidChangeConfiguration(this.onDidChangeConfiguration, this, this.disposables);
+    scm.onCheckedOutDir(this.onCheckedOutDir, this, this.disposables);
 
     const fsWatcher = Workspace.createFileSystemWatcher('**');
     this.disposables.push(fsWatcher);
