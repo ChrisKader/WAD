@@ -119,7 +119,7 @@ export class CommandCenter {
     }
 
     const initLocation = initLocationArray[0]
-    const projectDirUri = Uri.joinPath(initLocation,projectName)
+
     const cloneDirUri = await Workspace.fs.createDirectory(initLocation).then(()=>{
       const cloneDir = Uri.joinPath(initLocation,projectName)
       return Workspace.fs.createDirectory(cloneDir).then(()=>{
