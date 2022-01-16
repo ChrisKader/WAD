@@ -7,7 +7,7 @@ import * as proc from 'process';
 import { Readable } from 'stream';
 import { CancellationToken, Progress, ProgressLocation, ProgressOptions, Uri, window as Window, workspace as Workspace,FileSystemError, Disposable, EventEmitter, Event } from 'vscode';
 import { assign, dispose, IDisposable, log, onceEvent, toDisposable } from './msutil';
-import { basename as Basename, dirname as Dirname, join as Join } from 'path';
+import { basename as Basename, join as Join } from 'path';
 import { StringDecoder } from 'string_decoder';
 import * as byline from 'byline';
 
@@ -231,13 +231,13 @@ export class Scm {
   private _foundScms = new Map<TValidScm, TSuppScmInfo>();
 
   async initialScan(){
-    return new Promise<boolean>((res,rej)=>{
+    return new Promise<boolean>((res,_rej)=>{
       res(this.supported.every(async scm =>{
-        return await this._find(scm.scm).then(async (v)=>{
+        return await this._find(scm.scm).then(async (_v)=>{
           return true;
-        },(r)=>{
+        },()=>{
           return true;
-        }).catch((r)=>{
+        }).catch((_r)=>{
           return true;
         });
       }));
@@ -283,7 +283,7 @@ export class Scm {
         });
       }
       reject(`${scm} not ready`);
-    },(r)=>{
+    },(_r)=>{
       return reject(false);
     }));
   };
@@ -316,14 +316,14 @@ export class Scm {
   };
 
   private _init = async (options: ICheckoutOptions,targetUri: Uri) => {
-    const onSpawn = (child: cp.ChildProcess) => {}
+    const onSpawn = (_child: cp.ChildProcess) => {}
     const spawnOptions: SpawnOptions = {
       onSpawn,
     };
     await this.exec(options.scmInfo, targetUri.fsPath, ['init'], spawnOptions);
   }
 
-  private _clone = async (url: string, options: ICheckoutOptions, checkoutArgs?: ICheckoutArgs, cancellationToken?: CancellationToken):Promise<CheckoutReturn> => {
+  private _clone = async (url: string, options: ICheckoutOptions, checkoutArgs?: ICheckoutArgs, _cancellationToken?: CancellationToken):Promise<CheckoutReturn> => {
     let folderName = Basename(options.targetUri.fsPath);
     let parentDir = checkoutArgs?.noCloneDir ? options.targetUri.fsPath : options.targetUri.fsPath.replace(folderName,'.clone');
 
@@ -363,11 +363,13 @@ export class Scm {
       }
     })
 
+
+    // TODO: Remove all this.
     const onSpawn = (child: cp.ChildProcess) => {
       const decoder = new StringDecoder('utf8');
 
       const lineStream = new byline.LineStream({ encoding: 'utf8' });
-      child.stderr!.on('data', (buffer: Buffer) => child.stdin!.write(decoder.write(buffer)));
+      child.stderr!.on('data', (buffer: Buffer) => child.stdin?.write(decoder.write(buffer)));
 
       let totalProgress = 0;
       let previousProgress = 0;

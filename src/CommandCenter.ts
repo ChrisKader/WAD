@@ -1,8 +1,9 @@
 import { basename, dirname, join as Join, } from 'path';
 import * as os from 'os';
-import { commands, Disposable, extensions as Extensions, OutputChannel, window as Window, Uri, Progress, ProgressLocation, CancellationToken, workspace as Workspace, FileSystemError, window, QuickPickItem } from 'vscode';
+import { commands, Disposable, extensions as Extensions, OutputChannel, window as Window, Uri, Progress, ProgressLocation, CancellationToken, workspace as Workspace, FileSystemError, window, QuickPickItem, MessageOptions, TextDocumentContentProvider } from 'vscode';
 import { WadModel } from './model';
 import { log } from './msutil';
+import { validateDestInBase } from './util'
 import { ExternalsRoot, ExternalsChild, ExtDirChildOpt } from './pkgmetaFile';
 import { Scm } from './Scm';
 
@@ -38,15 +39,32 @@ function command(commandId: string, options: WadCommandOptions = {}): Function {
   };
 }
 
+class CommandErrorOutputTextDocumentContentProvider implements TextDocumentContentProvider {
+
+  private items = new Map<string, string>();
+
+  set(uri: Uri, contents: string): void {
+    this.items.set(uri.path, contents);
+  }
+
+  delete(uri: Uri): void {
+    this.items.delete(uri.path);
+  }
+
+  provideTextDocumentContent(uri: Uri): string | undefined {
+    return this.items.get(uri.path);
+  }
+}
+
 export class CommandCenter {
   private disposables: Disposable[];
-
+  private commandErrors = new CommandErrorOutputTextDocumentContentProvider();
   constructor(
     private model: WadModel,
-    private scm: Scm
+    private scm: Scm,
   ) {
-    this.disposables = watCommands.map(({ commandId, key, method, options }) => {
-      const command = this.createCommand(commandId, key, method, options);
+    this.disposables = watCommands.map(({ commandId, key, method }) => {
+      const command = this.createCommand(commandId, key, method);
 
       return commands.registerCommand(commandId, command);
     });
@@ -81,7 +99,7 @@ export class CommandCenter {
       await Workspace.fs.delete(checkoutReturn!.options.targetUri, { recursive: true, useTrash: false }).then(void 0, (r: FileSystemError) => {
         if (r.code !== 'FileNotFound') {
           //We can safely ignore FileNotFound as it would mean tht the target directory did not exist and that is fine.
-          return r
+          log('Error', r)
         }
       })
       await Workspace.fs.copy(checkoutReturn!.checkoutDir, checkoutReturn!.options.targetUri).then(void 0, log)
@@ -91,16 +109,70 @@ export class CommandCenter {
     })
   }
 
-  @command('wad.updateFileDecoration')
-  async updateFileDecoration(resoureUri: Uri) { }
-
-  private createCommand(id: string, key: string, method: Function, options: WadCommandOptions): (...args: any[]) => any {
-    const result = (...args: any[]) => {
+  private createCommand(id: string, key: string, method: Function): (...args: any[]) => any {
+    const result = async (...args: any[]) => {
       let result: Promise<any>;
       result = Promise.resolve(method.apply(this, args));
+
+
+      try {
+        return await result;
+      } catch (err: any) {
+        const options: MessageOptions = {
+          modal: true
+        };
+
+        let message: string = `${id}: ${err}`;
+        let type: 'error' | 'warning' = 'error';
+
+        const choices = new Map<string, () => void>();
+        const openOutputChannelChoice = "Open Wad Log";
+        const outputChannel = this.model.notificationProvider.outputChannel as OutputChannel;
+        choices.set(openOutputChannelChoice, () => outputChannel.show());
+
+        const showCommandOutputChoice = "Show Command Output";
+        if (err.stderr) {
+          choices.set(showCommandOutputChoice, async () => {
+            const timestamp = new Date().getTime();
+            const uri = Uri.parse(`wad-output:/wad-error-${timestamp}`);
+
+            let command = 'wad';
+
+            if (err.gitArgs) {
+              command = `${command} ${err.gitArgs.join(' ')}`;
+            } else if (err.gitCommand) {
+              command = `${command} ${err.gitCommand}`;
+            }
+
+            this.commandErrors.set(uri, `> ${command}\n${err.stderr}`);
+
+            try {
+              const doc = await Workspace.openTextDocument(uri);
+              await window.showTextDocument(doc);
+            } finally {
+              this.commandErrors.delete(uri);
+            }
+          });
+        }
+
+        const allChoices = Array.from(choices.keys());
+        const result_4 = type === 'error'
+          ? await window.showErrorMessage(message, options, ...allChoices)
+          : await window.showWarningMessage(message, options, ...allChoices);
+
+        if (result_4) {
+          const resultFn = choices.get(result_4);
+
+          if (resultFn) {
+            resultFn();
+          }
+        }
+      }
     };
+
     // patch this object, so people can call methods directly
     (this as any)[key] = result;
+
     return result;
   }
 
@@ -154,8 +226,8 @@ export class CommandCenter {
       return;
     }
 
-    const defaultSteps:{
-      [key: string]:QuickPickItem & {step:string,type:string,info?:string}
+    const defaultSteps: {
+      [key: string]: QuickPickItem & { step: string, type: string, info?: string }
     } = {
       pickExternals: {
         label: 'Externals',
@@ -164,56 +236,56 @@ export class CommandCenter {
         type: 'pick',
         picked: true,
       },
-      initFolder:{
+      initFolder: {
         label: `Git init ${addonName}`,
         description: `Initialize the folder created for ${addonName} with git (Source Code Management)`,
         step: 'initFolder',
         type: 'pick',
         picked: true,
       },
-      includeLuacheck:{
+      includeLuacheck: {
         label: '.luacheckrc',
-        info:'\/.luacheckrc',
+        info: '\/.luacheckrc',
         description: 'Include a baseline file for use with LuaCheck',
         step: 'includeLuacheck',
         type: 'deleteFile',
         picked: true,
       },
-      includePkgMeta:{
+      includePkgMeta: {
         label: '.pkgmeta',
-        info:'\/.pkgmeta',
+        info: '\/.pkgmeta',
         description: `Include a .pkgmeta file used with the BigWigsMods/packager (customized for ${addonName})`,
         step: 'includePkgMeta',
         type: 'deleteFile',
         picked: true,
       },
-      includeGitHubFolder:{
+      includeGitHubFolder: {
         label: '.github',
-        info:'\/.github',
+        info: '\/.github',
         description: `Include a .github directory that contains a workflow that can be used with GitHub actions (customized for ${addonName})`,
         step: 'includeGitHubFolder',
         type: 'deleteFile',
         picked: true,
       },
-      includeGitIgnore:{
+      includeGitIgnore: {
         label: '.gitignore',
-        info:'\/.gitignore',
+        info: '\/.gitignore',
         description: `Include a .gitignore file (customized for ${addonName})`,
         step: 'includeGitIgnore',
         type: 'deleteFile',
         picked: true,
       },
-      includeChangelog:{
+      includeChangelog: {
         label: 'CHANGELOG.md',
-        info:'CHANGELOG.md',
+        info: 'CHANGELOG.md',
         description: `Include blank CHANGELOG.md file.`,
         step: 'includeChangelog',
         type: 'deleteFile',
         picked: true,
       },
-      includeReadme:{
+      includeReadme: {
         label: 'README.md',
-        info:'README.md',
+        info: 'README.md',
         description: `Include blank README.md file (customized for ${addonName})`,
         step: 'includeReadme',
         type: 'deleteFile',
@@ -222,7 +294,7 @@ export class CommandCenter {
     }
 
     const libraryList = await this.model.getLibraryList()
-    const stepsToComplete = await Window.showQuickPick(Object.keys(defaultSteps).map(v=>defaultSteps[v]), { canPickMany: true })
+    const stepsToComplete = await Window.showQuickPick(Object.keys(defaultSteps).map(v => defaultSteps[v]), { canPickMany: true })
     let librariesToInstall: { label: string; description: string; index: number; }[] | undefined = []
 
     // default library folder is Libs
@@ -266,7 +338,7 @@ export class CommandCenter {
       location: ProgressLocation.Notification,
       title: `Creating ${addonName}`,
       cancellable: true,
-    }, (progress, cancelToken) => {
+    }, (progress, _cancelToken) => {
       return new Promise(async (res, rej) => {
         const totalBaseSteps = 10
 
@@ -284,7 +356,7 @@ export class CommandCenter {
           if (v) {
             rej(`Project Directory already exists at ${addonBaseDir.toString(true)}`)
           }
-        }, (r) => {
+        }, (_r) => {
           log(`${addonBaseDir.toString(true)} does not exist. Continuing`)
         })
 
@@ -323,7 +395,7 @@ export class CommandCenter {
         // Parse .templateoptions file into an object then delete the file.
         const templateOptions = JSON.parse(templateOptionsStr) as ITemplateOptions
 
-        await Workspace.fs.delete(tempOptsUri, { recursive: false, useTrash: true }).then(() => { }, (r) => { })
+        await Workspace.fs.delete(tempOptsUri, { recursive: false, useTrash: true }).then(() => { }, (_r) => { })
         progInfo = this.updateProgress(progInfo, `Rename the default subfolder.`)
         // Step 4: Rename the default subfolder.
         // Rename template sub-folder to the project name using templateOptions to get the default folder name.
@@ -358,8 +430,10 @@ export class CommandCenter {
         if (templateOptions.filesTo.rename) {
           for await (const fileInfo of templateOptions.filesTo.rename) {
             const repRegEx = new RegExp(replaceRegExStr, 'gm')
-            const oldFilenameUri = Uri.joinPath(addonBaseDir, fileInfo[0].replace(repRegEx, addonName))
-            const newFilenameUri = Uri.joinPath(addonBaseDir, fileInfo[1].replace(repRegEx, addonName))
+            const oldFilename = fileInfo[0].replace(repRegEx, addonName);
+            const newFilename = fileInfo[1].replace(repRegEx, addonName);
+            const oldFilenameUri = Uri.joinPath(addonBaseDir, oldFilename)
+            const newFilenameUri = Uri.joinPath(addonBaseDir, newFilename)
             progInfo = this.updateProgress(progInfo, `${basename(oldFilenameUri.fsPath)} to ${basename(newFilenameUri.fsPath)}`, true)
             await Workspace.fs.rename(oldFilenameUri, newFilenameUri, { overwrite: true }).then(() => {
               log(`Rename From ${oldFilenameUri.toString(true)} to ${newFilenameUri.toString(true)} successful`)
@@ -376,12 +450,16 @@ export class CommandCenter {
         if (templateOptions.filesTo.delete) {
           for await (const fileInfo of templateOptions.filesTo.delete) {
             const uriToDelete = Uri.joinPath(addonBaseDir, fileInfo)
-            progInfo = this.updateProgress(progInfo, `Deleting ${fileInfo}`, true)
-            await Workspace.fs.delete(Uri.joinPath(addonBaseDir, fileInfo), { recursive: true, useTrash: false }).then(void 0, (r: FileSystemError) => {
-              if (r.message !== 'FileNotFound') {
-                rej(`Error deleting ${uriToDelete.toString(true)}`)
-              }
-            });
+            if (validateDestInBase(addonBaseDir, fileInfo)) {
+              progInfo = this.updateProgress(progInfo, `Deleting ${fileInfo}`, true)
+              await Workspace.fs.delete(Uri.joinPath(addonBaseDir, fileInfo), { recursive: true, useTrash: false }).then(void 0, (r: FileSystemError) => {
+                if (r.message !== 'FileNotFound') {
+                  rej(`Error deleting ${uriToDelete.toString(true)}`)
+                }
+              });
+            } else {
+              rej(`Bad path deleting ${uriToDelete.toString(true)}`)
+            }
           }
         }
 
@@ -402,7 +480,7 @@ export class CommandCenter {
           const libFolderPath = addonName + "/" + libraryFolderName
           const externalsInfo: string[] = ['externals:']
           // Delete the folder if it exists (though it shouldnt.)
-          await Workspace.fs.delete(libFolderBaseUri).then(void 0, (r) => { });
+          await Workspace.fs.delete(libFolderBaseUri).then(void 0, (_r) => { });
           let currIdx = 1
           // Loop through libraries selected.
           for await (const libraryToInstall of librariesToInstall) {
@@ -413,7 +491,7 @@ export class CommandCenter {
             const currentLibraryUri = Uri.joinPath(libFolderBaseUri, currentLibraryInfo.folder)
             const currentLibFolderPath = libFolderPath + "/" + currentLibraryInfo.folder
             // delete the folder if it exists.
-            await Workspace.fs.delete(currentLibraryUri).then(void 0, (r) => { });
+            await Workspace.fs.delete(currentLibraryUri).then(void 0, (_r) => { });
             // create directory for current library
             const libCloneDirUri = await Workspace.fs.createDirectory(currentLibraryUri).then(() => {
               return currentLibraryUri
@@ -421,7 +499,7 @@ export class CommandCenter {
               rej(`Error when creating library folder ${currentLibraryInfo.folder} in ${currentLibraryUri.toString(true)}: ${r.code} ${r.message}`)
             })
 
-            const currentLibraryCloneResults = await this.model.neededScms[currentLibraryInfo.scm].clone(currentLibraryInfo.url, libCloneDirUri, { noProgress: true, noCloneDir: true }).catch((r) => {
+            const currentLibraryCloneResults = await this.model.neededScms[currentLibraryInfo.scm].clone(currentLibraryInfo.url, libCloneDirUri, { noProgress: true, noCloneDir: true }).catch((_r) => {
               rej(`Unsuccessful checkout of library ${currentLibraryInfo} ${currentLibraryCloneResults}`);
             })
 
@@ -437,14 +515,14 @@ export class CommandCenter {
           await Workspace.fs.writeFile(pkgMetaPath, Buffer.from(newPkgMetaString))
         }
 
-        for await (const step of Object.keys(defaultSteps).filter(f=>stepsToComplete?.findIndex(v=>v.step === f) === -1).filter(f=>defaultSteps[f].type === 'deleteFile').map(f => defaultSteps[f])) {
-          const deleteFileUri = Uri.joinPath(addonBaseDir,step.info!);
-          await Workspace.fs.delete(deleteFileUri).then(r=>{},r=>{})
+        for await (const step of Object.keys(defaultSteps).filter(f => stepsToComplete?.findIndex(v => v.step === f) === -1).filter(f => defaultSteps[f].type === 'deleteFile').map(f => defaultSteps[f])) {
+          const deleteFileUri = Uri.joinPath(addonBaseDir, step.info!);
+          await Workspace.fs.delete(deleteFileUri).then(_r => { }, _r => { })
         }
 
         //Step 10: Init addon folder.
         progInfo = this.updateProgress(progInfo, `Git Initializing ${addonName}`);
-        if(stepsToComplete?.includes(defaultSteps.initFolder)){
+        if (stepsToComplete?.includes(defaultSteps.initFolder)) {
           this.model.neededScms.git.init(addonBaseDir)
         }
         commands.executeCommand('vscode.openFolder', addonBaseDir, { forceNewWindow: true })

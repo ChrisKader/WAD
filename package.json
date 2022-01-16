@@ -75,6 +75,30 @@
         }
       ]
     },
+    "walkthroughs": [
+      {
+        "id": "wadNewAddon",
+        "title": "Create a New WoW Addon",
+        "description": "Walkthrough creating a new WoW Addon and discover how easy it really is!",
+        "when": "workspacePlatform != webworker",
+        "steps":[
+          {
+            "id":"wad.pickAddonName",
+            "media": {"markdown": "resources/markdown/addon-name.md"},
+            "title": "Chose a name for your addon.",
+            "description": "The first step to creating a WoW Addon is picking a name. Don't worry, this is not permanant.",
+            "when": "wad.state == initialized"
+          },
+          {
+            "id":"wad.projectStructure",
+            "media": {"markdown": "resources/markdown/project-structure.md"},
+            "title": "Understanding what makes an addon tic.",
+            "description": "The first step to creating a WoW Addon is picking a name. Don't worry, this is not permanant.",
+            "when": "wad.state == initialized"
+          }
+        ]
+      }
+    ],
     "views": {
       "explorer": [
         {
@@ -87,7 +111,7 @@
     "viewsWelcome": [
       {
         "view": "explorer",
-        "contents": "In order to use WoW Addon Tool's features, you can open a folder containing a TOC file or create an addon from a template.\n[Open Folder](command:vscode.openFolder)\n[Create Addon Project](command:wad.setuptempate)\n",
+        "contents": "\n[Create WoW Addon Project](command:wad.setuptempate)",
         "enablement": "wad.state == initialized"
       }
     ]

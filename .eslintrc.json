@@ -7,11 +7,16 @@
   },
   "plugins": [
     "@typescript-eslint",
-    "header"
+    "header",
+    "node/recommended"
   ],
   "rules": {
     "no-console":"error",
-    "no-buffer-constructor": "warn",
+    "node/no-deprecated-api": ["error", {
+      "version": ">=8.0.0",
+      "ignoreModuleItems": [],
+      "ignoreGlobalItems": []
+    }],
     "no-caller": "warn",
     "no-case-declarations": "warn",
     "no-debugger": "warn",
@@ -22,6 +27,7 @@
     "no-extra-semi": "warn",
     "no-new-wrappers": "warn",
     "no-redeclare": "off",
+    "no-unused-vars": "error",
     "no-sparse-arrays": "warn",
     "no-unsafe-finally": "warn",
     "no-unused-labels": "warn",

@@ -104,7 +104,7 @@ export class WadModel {
     const workspaceFoldersToAdd = added.filter(f => !this.trackedWorkspaceFolders.has(f.uri.toString(true)))
     const workspaceFoldersToRemove = removed.filter(f => this.trackedWorkspaceFolders.has(f.uri.toString(true)))
 
-    workspaceFoldersToRemove.forEach(f => [...this.trackedFiles].filter(([s, _]) => s.includes(f.uri.toString(true))).map(([s, t]) => {
+    workspaceFoldersToRemove.forEach(f => [...this.trackedFiles].filter(([s, _]) => s.includes(f.uri.toString(true))).map(([_, t]) => {
       this.deleteTrackedFile(t.resourceUri)
       this.checkoutDirs.delete(f.uri.toString(true))
       this.trackedWorkspaceFolders.delete(f.uri.toString(true))
@@ -116,7 +116,7 @@ export class WadModel {
     })
   }
 
-  private onDidChangeVisibleTextEditors = async (editors: readonly TextEditor[]): Promise<void> => {
+  private onDidChangeVisibleTextEditors = async (_editors: readonly TextEditor[]): Promise<void> => {
 
   }
 
@@ -189,7 +189,8 @@ export class WadModel {
 
   constructor(
     public context: ExtensionContext,
-    public neededScms: {scm:Scm, git:TScm,svn:TScm}
+    public neededScms: {scm:Scm, git:TScm,svn:TScm},
+    public notificationProvider: WadNotifcationProvider,
   ) {
     Workspace.onDidChangeWorkspaceFolders(this.onDidChangeWorkspaceFolders, this, this.disposables)
     Window.onDidChangeVisibleTextEditors(this.onDidChangeVisibleTextEditors, this, this.disposables);
@@ -221,7 +222,7 @@ export class WadModel {
           log('Error', 'Failed to setup local repo.')
           this.initialized = false
         }
-      }, (r) => {
+      }, (_r) => {
         this.initialized = false
       })
     })

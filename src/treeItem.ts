@@ -57,6 +57,7 @@ export class WadTreeItem extends TreeItem {
 
 export class WadTreeItemRoot extends TreeItem {
   public readonly id: string = v4();
+  public _id: string;
   public readonly root: boolean = true;
   public label: TreeItem['label'];
   public fileType: string;
@@ -69,6 +70,7 @@ export class WadTreeItemRoot extends TreeItem {
   )
   {
     super(label);
+    this._id = id;
     this.fileType = fileType;
     this.collapsibleState = this.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
     this.description = this.children.length.toString();

@@ -1,0 +1,3 @@
+## WoW Addon Folder Structure
+
+In order for World of Warcraft to see your addon and allow it to load into the game, a Table of Contents (TOC for short) file must within the root of your addons folder and will normally share the same name as your addons folder (example: `MyWoWAddon\MyWoWAddon.toc`). A TOC file provides the game client, and other utilities, important information about your addon. While most of the visual information is provided via "Directives", the game client loads files in the order they are listed in your TOC.

@@ -23,9 +23,13 @@ export class WadNotifcationProvider {
     }
   }
 
-  public outputChannel(text: string, fromFile: string, type?: number) {
+  get outputChannel():OutputChannel{
+    return this.outputChannel;
+  };
+
+  public sendToChannel(text: string, fromFile: string, type?: number) {
     const linePrefix = `${logTimestamp()}`;
-    this._outputChannel.appendLine(`${linePrefix}: ${fromFile}: ${text}`);
+    this._outputChannel.appendLine(`${linePrefix}: ${type} ${fromFile}: ${text}`);
   }
 
   constructor(){

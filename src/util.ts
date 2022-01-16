@@ -1,9 +1,8 @@
 import { Uri, FileType, workspace as Workspace, Disposable, Event } from 'vscode';
 import { combinedDisposable, log } from './msutil';
-import * as path from 'path';
-import { dirname as Dirname } from 'path';
+import { dirname as Dirname, isAbsolute as IsAbsolute, join as Join, relative as Relative } from 'path';
 
-const iconsRootPath = path.join(__dirname, '..', 'resources', 'icons');
+const iconsRootPath = Join(__dirname, '..', 'resources', 'icons');
 
 export function camelCase(str:string) {
   return str.split(' ')
@@ -18,7 +17,7 @@ export const regExObj = {
 };
 
 export function getIconUri(iconName: string, theme: string): Uri {
-  return Uri.file(path.join(iconsRootPath, theme, `${iconName}.svg`));
+  return Uri.file(Join(iconsRootPath, theme, `${iconName}.svg`));
 }
 
 export function toProperCase(s: string) {
@@ -96,7 +95,7 @@ export async function workspaceRecursiveCopy(sourceDir: Uri, targetDir: Uri, ign
         await Workspace.fs.copy(sourceFileUri, targetFileUri, { overwrite: true }).then(()=>{
           resultArray.push('true');
         },(r)=>{
-          log('ERROR',`Failed to copy ${sourceFileUri.fsPath} to ${targetFileUri.fsPath}`);
+          log('ERROR',`Failed to copy ${sourceFileUri.fsPath} to ${targetFileUri.fsPath} ${r}`);
           resultArray.push('false');
         });
       } else if(fileType === 2){
@@ -104,7 +103,7 @@ export async function workspaceRecursiveCopy(sourceDir: Uri, targetDir: Uri, ign
         await Workspace.fs.copy(sourceFileUri, targetFileUri, { overwrite: true }).then(()=>{
           resultArray.push('true');
         },(r)=>{
-          log('ERROR',`Failed to copy ${sourceFileUri.fsPath} to ${targetFileUri.fsPath}`);
+          log('ERROR',`Failed to copy ${sourceFileUri.fsPath} to ${targetFileUri.fsPath} ${r}`);
           resultArray.push('false');
         });
         //log(`Sending directory ${sourceFileUri.fsPath} to recursive copy.`);
@@ -139,8 +138,8 @@ export function anyEventMore<T>(...events: [Event<T>,string][]): Event<T> {
 	};
 }
 
-export function checkPath(base: Uri, dest: Uri){
-  // file:///c%3A/TESTFOLDER/TestAddon1/Addon.toc
-  // file:///c%3A/TESTFOLDER/TestAddon1/TestAddon.toc
-  return dest.toString(true).includes(Dirname(base.toString(true)))
+export function validateDestInBase(base: Uri, dest: string){
+  const relative = Relative(base.toString(true),dest)
+  const isSubdir = relative && !relative.startsWith('..') && !IsAbsolute(relative);
+  return isSubdir;
 }

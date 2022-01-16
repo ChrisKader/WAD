@@ -1,4 +1,4 @@
-import { Event, EventEmitter, ProviderResult, TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri } from 'vscode';
+import { Event, EventEmitter, ProviderResult, TreeDataProvider, TreeItemCollapsibleState } from 'vscode';
 import { WadTreeItem, WadTreeItemRoot } from './treeItem';
 import { TocFile } from './tocFile';
 
@@ -32,7 +32,7 @@ export class AddonOutlineProvider implements TreeDataProvider<WadTreeItem> {
       return element.children;
     }
 
-    return [...this._rootItems].map(([fileType,rootItem])=>{
+    return [...this._rootItems].map(([,rootItem])=>{
       rootItem.children = [...this._treeItems].filter(([_,t])=>t.fileType === rootItem.fileType).map(([,t])=>t);
       rootItem.description = rootItem.root ? rootItem.children.length.toString() : undefined;
       rootItem.collapsibleState = rootItem.children.length > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;

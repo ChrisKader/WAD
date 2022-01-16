@@ -168,10 +168,12 @@ export class TocFile {
       }
       return true;
   }
+
   disposables: Disposable[] = []
   dispose(): void {
     this.disposables = dispose(this.disposables);
 	}
+
   constructor(
     public resourceUri: Uri
   ){
