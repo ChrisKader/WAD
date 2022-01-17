@@ -1,0 +1,14 @@
+{
+	"comments": {
+		"lineComment": "#(?![\\S ]+@$)"
+	},
+	"folding": {
+		"markers": {
+		  "start": "^([# ]+)?@(?!end)[\\S-]+@",
+		  "end": "^([# ]+)?@end[\\S-]+@"
+		}
+	  },
+	"brackets": [],
+	"autoClosingPairs": [],
+	"surroundingPairs": []
+}

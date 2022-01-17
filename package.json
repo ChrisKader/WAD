@@ -14,6 +14,17 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "colors": [
+      {
+        "id": "wad.largeNumberBackground",
+        "description": "Background decoration color for large numbers",
+        "defaults": {
+          "dark": "#FF000055",
+          "light": "#FF000055",
+          "highContrast": "#FF000055"
+        }
+      }
+    ],
     "configuration": [
       {
         "title": "WoW Addon Developer Tools",
@@ -53,7 +64,41 @@
         "icon": "$(cloud-download)"
       }
     ],
-
+    "languages": [
+      {
+        "id": "toc",
+        "extensions": [
+          ".toc"
+        ],
+        "aliases": [
+          "Toc",
+          "TOC"
+        ],
+        "configuration": "resources/language/configs/toc-language-configuration.json"
+      },
+      {
+        "id": "lua",
+        "extensions": [
+          ".lua"
+        ],
+        "aliases": [
+          "Lua"
+        ],
+        "configuration": "resources/language/configs/lua-language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "path": "resources/language/grammars/toc.tmLanguage.json",
+        "scopeName": "source.toc",
+        "language": "toc"
+      },
+      {
+        "path": "resources/language/grammars/lua.tmLanguage.json",
+        "scopeName": "source.lua",
+        "language": "lua"
+      }
+    ],
     "menus": {
       "view/title": [
         {
@@ -81,17 +126,21 @@
         "title": "Create a New WoW Addon",
         "description": "Walkthrough creating a new WoW Addon and discover how easy it really is!",
         "when": "workspacePlatform != webworker",
-        "steps":[
+        "steps": [
           {
-            "id":"wad.pickAddonName",
-            "media": {"markdown": "resources/markdown/addon-name.md"},
+            "id": "wad.pickAddonName",
+            "media": {
+              "markdown": "resources/markdown/addon-name.md"
+            },
             "title": "Chose a name for your addon.",
             "description": "The first step to creating a WoW Addon is picking a name. Don't worry, this is not permanant.",
             "when": "wad.state == initialized"
           },
           {
-            "id":"wad.projectStructure",
-            "media": {"markdown": "resources/markdown/project-structure.md"},
+            "id": "wad.projectStructure",
+            "media": {
+              "markdown": "resources/markdown/project-structure.md"
+            },
             "title": "Understanding what makes an addon tic.",
             "description": "The first step to creating a WoW Addon is picking a name. Don't worry, this is not permanant.",
             "when": "wad.state == initialized"
@@ -130,6 +179,7 @@
   "devDependencies": {
     "@types/byline": "^4.2.33",
     "@types/glob": "^7.1.4",
+    "@types/luaparse": "^0.2.8",
     "@types/mocha": "^9.0.0",
     "@types/node": "14.x",
     "@types/semver": "^7.3.9",
@@ -141,18 +191,19 @@
     "@typescript-eslint/parser": "^5.1.0",
     "@vscode/test-electron": "^1.6.2",
     "eslint": "^8.1.0",
-    "iconv-lite-umd": "0.6.8",
+    "eslint-plugin-header": "3.1.1",
     "glob": "^7.1.7",
+    "iconv-lite-umd": "0.6.8",
     "mocha": "^9.1.3",
     "ts-loader": "^9.2.5",
     "typescript": "^4.4.4",
     "webpack": "^5.52.1",
-    "webpack-cli": "^4.8.0",
-    "eslint-plugin-header": "3.1.1"
+    "webpack-cli": "^4.8.0"
   },
   "dependencies": {
     "byline": "^5.0.0",
     "jschardet": "^3.0.0",
+    "luaparse": "https://github.com/fstirlitz/luaparse",
     "semver": "^7.3.5",
     "uuid": "^8.3.2",
     "which": "^1.3.0",

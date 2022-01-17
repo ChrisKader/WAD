@@ -1,19 +1,24 @@
-import {commands as Commands, ExtensionContext, extensions as Extensions, ShellExecution, window as Window, workspace as Workspace} from 'vscode';
+import { CancellationToken, commands as Commands, DecorationOptions, DocumentSelector, ExtensionContext, extensions as Extensions, Hover, languages as Languages, MarkdownString, OverviewRulerLane, Position, Range, ShellExecution, TextDocument, window as Window, workspace as Workspace } from 'vscode';
 import { WadModel } from './model';
 import { WadNotifcationProvider } from './notificationProvider';
 import { CommandCenter } from './CommandCenter';
 import { Scm } from './Scm';
+import { registerHoverProvider } from './hoverProvider';
+
 export async function activate(context: ExtensionContext) {
+
   const notificationProvider = new WadNotifcationProvider()
 
-  context.globalState.update('status','activate');
-  if(!Workspace.workspaceFolders){
-    context.globalState.update('status','noWorkspace');
+  context.globalState.update('status', 'activate');
+  if (!Workspace.workspaceFolders) {
+    context.globalState.update('status', 'noWorkspace');
   }
+
+  registerHoverProvider(context);
   const scm = new Scm();
-  await scm.get('svn').then((svn)=>{
+  await scm.get('svn').then((svn) => {
     scm.get('git').then(git => {
-      const model = new WadModel(context,{scm: scm, git, svn},notificationProvider)
+      const model = new WadModel(context, { scm: scm, git, svn }, notificationProvider)
       const commandCenter = new CommandCenter(model, scm)
       context.subscriptions.push(
         scm,
@@ -22,14 +27,14 @@ export async function activate(context: ExtensionContext) {
       );
       context.subscriptions.push(model);
 
-    },(gitReject)=>{
+    }, (gitReject) => {
       return gitReject
-    }).catch(r=>{
+    }).catch(r => {
       Window.showErrorMessage(`Did not find good Git install. ${r}`)
     })
-  },(svnReject)=>{
+  }, (svnReject) => {
     return svnReject
-  }).catch(r=>{
+  }).catch(r => {
     Window.showErrorMessage(`Did not find good SVN install. ${r}`)
   })
 }
