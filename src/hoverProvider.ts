@@ -1,7 +1,8 @@
 import { CancellationToken, HoverProvider, ExtensionContext, extensions as Extensions, Hover, languages as Languages, MarkdownString, OverviewRulerLane, Position, Range, ShellExecution, TextDocument, window as Window, workspace as Workspace, Location, ProviderResult, tasks, Uri, workspace, DocumentSelector } from 'vscode';
-import {ILuaEscapedStringsInfo, readLua} from './readLua'
+import { log } from './msutil';
+import {IEscStrsInfo, LuaEscStrs} from './readLua'
 let cachedDocument: Uri | undefined = undefined;
-let cachedScripts: ILuaEscapedStringsInfo | undefined = undefined;
+let cachedScripts: IEscStrsInfo | undefined = undefined;
 
 export function invalidateHoverScriptsCache(document?: TextDocument) {
   if (!document) {
@@ -14,6 +15,8 @@ export function invalidateHoverScriptsCache(document?: TextDocument) {
 }
 
 export class LuaEscapedStringsHoverProvider implements HoverProvider {
+  luaEscapedStringsParser = new LuaEscStrs()
+
   constructor(private context: ExtensionContext) {
 		context.subscriptions.push(workspace.onDidChangeTextDocument((e) => {
 			invalidateHoverScriptsCache(e.document);
@@ -23,17 +26,18 @@ export class LuaEscapedStringsHoverProvider implements HoverProvider {
 	public provideHover(document: TextDocument, position: Position, _token: CancellationToken): ProviderResult<Hover> {
 		let hover: Hover | undefined = undefined;
 
-		if (!cachedDocument || cachedDocument.fsPath !== document.uri.fsPath) {
-			cachedScripts = readLua(document);
+ 		if (!cachedDocument || cachedDocument.fsPath !== document.uri.fsPath) {
+			cachedScripts = this.luaEscapedStringsParser.parseDoc(document)
 			cachedDocument = document.uri;
 		}
 
-		cachedScripts?.escapedStrings.forEach(({ name, nameRange,value,valueRange }) => {
-			if (nameRange.contains(position)) {
-				let contents: MarkdownString = new MarkdownString(value + '\n\n');
-				contents.isTrusted = true;
+		cachedScripts?.escStrings.forEach(({ type,value,valueRange }) => {
+			if (valueRange.contains(position)) {
+				let contents: MarkdownString = new MarkdownString('\n');
+        contents.isTrusted = true;
         contents.supportHtml = true;
-				hover = new Hover(contents,nameRange);
+        contents.appendMarkdown(value);
+				hover = new Hover(contents,valueRange);
 			}
 		});
 		return hover;

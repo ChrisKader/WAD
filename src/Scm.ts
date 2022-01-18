@@ -243,12 +243,15 @@ export class Scm {
       }));
     });
   }
+  private _required?: string[]
+
   async _initialize() {
     return await this.initialScan();
   }
 
-  constructor() {
-
+  // TODO: Clean up initilization and allow for the discovery of required scm during construction.
+  constructor(required?:string[]) {
+    this._required = required
   }
 
   public get = async (scm: TValidScm): Promise<TScm> => {

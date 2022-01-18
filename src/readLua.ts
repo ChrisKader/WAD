@@ -1,103 +1,125 @@
-import { Range, Location, TextDocument, Position } from "vscode";
-import {Options,parse as luaparse, Node, Identifier, Parser, Token} from 'luaparse'
-import { log, pathEquals } from "./msutil";
+import { Range, Location, TextDocument, Position, languages, workspace, window, SemanticTokens, DocumentSymbol, MarkdownString } from "vscode";
+import { log } from "./msutil";
 
-export interface ILuaEscapedStringsReference {
-  name: string;
+class TEscTypes {
+  coloring:string = 'coloring';
+  atlas:string= 'atlas';
+  texture:string= 'texture';
+}
+ //'atlas'|'coloring'|'texture'
+
+type IEscStrRef = {
+  type: TEscTypes[keyof TEscTypes];
   value: string;
-  nameRange: Range;
   valueRange: Range;
 }
 
-export interface ILuaEscapedStringsInfo {
+type TSuppEscTypes = {
+  [Property in keyof TEscTypes as string]: {
+    type: keyof TEscTypes,
+    supported: boolean,
+    check:{
+      re: RegExp;
+    }
+    sub:{
+      re:RegExp,
+      rep:string,
+    }
+  };
+};
+
+export interface IEscStrsInfo {
   location: Location;
-  escapedStrings: ILuaEscapedStringsReference[];
+  escStrings: IEscStrRef[];
 }
 
-export const readLua = (document: TextDocument, buffer = document.getText()): ILuaEscapedStringsInfo | undefined => {
-  let start: Position | undefined;
-  let end: Position | undefined;
-  let inString = false;
-  let inColoredString = false
-  let currentNode: Node
-
-  let localDeclarations: Identifier[] = []
-  let nodes: Node[] = []
-  let buildingString: { name: string; nameRange: Range } | void;
-  let scope = 0;
-  const escapedStrings: ILuaEscapedStringsReference[] = [];
-
-  const previousNode = (): Node => {
-    return nodes[nodes.length - 2]
-  }
-
-  const regexes = {
-    coloredString: /(?:\|c(?<a>[a-f0-9]{2})(?<r>[a-f0-9]{2})(?<g>[a-f0-9]{2})(?<b>[a-f0-9]{2})(?<t>[^"]*?(?=(?<e>\|[rc]|$))))/gmi
-  }
-
-  const OnStringLiteral = (raw: string) => {
-    const prvNode = previousNode()
-    if (prvNode && prvNode.type === 'Identifier' && regexes.coloredString.test(raw)) {
-      regexes.coloredString.lastIndex = 0;
-      inColoredString = true
-      buildingString = {
-        name: prvNode.name,
-        nameRange: new Range(new Position(prvNode.loc!.start.line - 1,prvNode.loc!.start.column), new Position(prvNode.loc!.end.line - 1,prvNode.loc!.end.column))
-      }
-      const coloredString = [...raw.matchAll(regexes.coloredString)]
-      const hoverData = coloredString.map(v=>{
-        return `<span style='color:#${v.groups!.r}${v.groups!.g}${v.groups!.b};'>${v.groups!.t}</span>`
-      }).join('');
-
-      escapedStrings.push({
-        ...buildingString,
-        value: hoverData,
-        valueRange: new Range(new Position(currentNode.loc!.start.line - 1,currentNode.loc!.start.column), new Position(currentNode.loc!.end.line - 1,currentNode.loc!.end.column))
-      })
-      buildingString = undefined
+const supportedEscpStrs:TSuppEscTypes = {
+  coloring: {
+    type: 'coloring',
+    supported: true,
+    check: {
+      re:/(["']).*(\|c[a-f0-9]{8}.+\|r.*\1)/gi
+    },
+    sub:{
+      re: /\|c[a-f0-9]{2}([a-f0-9]{6})((?:[^|"\\]+|\|{2}|\\["])*)(?:\|r|(?=\|c[a-f0-9]{8}))(?=[^\n"]*")/gi,
+      rep: `<span style='color:#$1;'>$2</span>`
     }
-    regexes.coloredString.lastIndex = 0;
+  },
+  atlas: {
+    type: 'atlas',
+    supported: false,
+    check: {
+      re:/(["']).*(\|A[a-f0-9]{8}.+\|r.*\1)/gi
+    },
+    sub:{
+      re: /(.*)/g,
+      rep: '$1'
+    }
+  },
+  texture: {
+    type: 'texture',
+    supported: false,
+    check: {
+      re:/(["']).*(\|A[a-f0-9]{8}.+\|r.*\1)/gi
+    },
+    sub:{
+      re: /(.*)/g,
+      rep: '$1'
+    }
+  },
+}
+
+export class LuaEscStrs {
+
+  constructor() {}
+  re = {
+    allStrings: /(["']).*?\1/g,
+    escStrTest: /((["'])\|[AcT].+?\2)/g,
   }
 
-  const luaParseOptions:Options = {
-    wait: false,
-    comments: true,
-    scope: true,
-    locations: true,
-    ranges: true,
-    luaVersion: '5.1',
-    encodingMode: 'none',
-    extendedIdentifiers: false,
+  private getStrings = (text: string) => {
+    return [...text.matchAll(new RegExp(this.re.allStrings))]
+  }
 
-    onCreateNode: (node):void => {
-      nodes.push(node)
-      currentNode = node;
-      if (node.type === 'StringLiteral' && node.loc) {
-        inString = true
-        start = new Position(node.loc.start.line, node.loc.start.column)
-        end = new Position(node.loc.end.line, node.loc.end.column);
-        const prvNode = previousNode()
-        OnStringLiteral(node.raw)
+  private isEscStr = (text:string) => {
+    return new RegExp(this.re.escStrTest).test(text)
+  }
+
+  private getEscStrs = (text:string) => {
+    return this.getStrings(text).filter(a => this.isEscStr(a[0]))
+  }
+
+  private getEscStrType = (text:string) => {
+   return Object.entries(supportedEscpStrs).find(([k,t])=>t.check.re.test(text))?.[0]
+  }
+
+  private getSupportedEscStrs = (doc:TextDocument,docTxt: string):IEscStrRef[] => {
+    return this.getEscStrs(docTxt).map(e=>{
+      const escType = this.getEscStrType(e[0])!
+      const escStr = e[0]
+      const escStrIdx = e.index!
+
+      const escStrStart = doc.positionAt(escStrIdx)
+      const escStrStartPos = new Position(escStrStart.line, escStrStart.character)
+
+      const escStrEnd = doc.positionAt(escStrIdx + escStr.length)
+      const escStrEndPos = new Position(escStrEnd.line, escStrEnd.character)
+      const rtnVal = escStr.replace(supportedEscpStrs[escType]?.sub.re,supportedEscpStrs[escType]?.sub.rep)
+      return {
+        type: this.getEscStrType(e[0])!,
+        valueRange: new Range(escStrStartPos,escStrEndPos),
+        value: rtnVal.substring(1,rtnVal.length - 1)
       }
-    },
-
-    onCreateScope: ():void => {
-      scope++;
-    },
-    onDestroyScope: ():void => {
-      scope--;
-    },
-
-    onLocalDeclaration: (identifier):void => {
-      localDeclarations.push(identifier)
-    },
-  };
-
-  luaparse(buffer, luaParseOptions)
-
-  if (start === undefined) {
-    return undefined;
+    }).filter(v=>supportedEscpStrs[v.type].supported)
   }
 
-  return { location: new Location(document.uri, new Range(start, end ?? start)), escapedStrings };
-};
+  parseDoc = (doc: TextDocument, docTxt = doc.getText()) => {
+    if(doc.lineCount < 0){
+      return;
+    }
+    return {
+      location: new Location(doc.uri, new Range(doc.positionAt(0), doc.positionAt(1+docTxt.length + 1))),
+      escStrings: this.getSupportedEscStrs(doc,docTxt)
+    }
+  }
+}
